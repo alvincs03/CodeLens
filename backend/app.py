@@ -5,7 +5,7 @@ from flask_limiter.util import get_remote_address
 from github_routes import github_bp
 from anthropic import Anthropic
 from database import engine, get_db
-from models import Submission, Base
+from models import Submission, FileAnalysis, Base
 from dotenv import load_dotenv
 from functools import wraps
 import requests
@@ -13,6 +13,7 @@ import base64
 import re
 import os
 import time
+import hashlib
 
 load_dotenv()
 
@@ -127,42 +128,80 @@ def review_code():
     db.refresh(submission)
 
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=2048,
-        system="""You are a senior software engineer with 15+ years of experience. You review code with precision and directness. Be concise — every word must earn its place. No padding, no repetition.""",
+        model="claude-opus-4-5",
+        max_tokens=4096,
+        system="""You are a senior software engineer with 15+ years of experience across systems design,
+security, performance optimization, and clean code principles. You have conducted thousands of code reviews
+at top-tier tech companies. Your job is not just to find bugs — it is to teach the developer why something
+is wrong, what the consequences are if left unfixed, and exactly how to fix it. You are direct, precise,
+and educational. You do not sugarcoat issues. You treat the developer as someone capable of understanding
+the truth about their code.""",
         messages=[
             {
                 "role": "user",
-                "content": f"""Review this {language} code. Be concise and direct in every section.
+                "content": f"""Review the following {language} code with the thoroughness of a senior engineer
+preparing it for a production deployment at a high-scale company.
 
-Respond in exactly this format:
+Respond in exactly this format with no deviations:
 
 EXPLANATION:
-2-4 sentences on what this code does and what problem it solves.
+A thorough plain-English explanation of what this code does, how it works step by step,
+and what problem it is trying to solve. Explain it as if the developer who wrote it
+needs to be able to defend every line in a technical interview.
 
 BUGS:
-Numbered list. For each bug: what it is, what breaks at runtime, and the fix. If none: None found.
+A numbered list of every bug, logic error, edge case failure, and security vulnerability
+you find. For each one:
+- Describe exactly what the bug is
+- Explain what will happen at runtime if it is not fixed
+- Show the corrected code snippet
+
+If no bugs are found, write: None found.
 
 SUGGESTIONS:
-Numbered list of the top improvements only. Each suggestion: one sentence on why it matters, one code example.
+A numbered list of concrete improvements covering:
+- Code readability and maintainability
+- Performance optimizations
+- Better design patterns or architectural choices
+- Error handling gaps
+- Any violation of language-specific best practices
+For each suggestion, explain why it matters and show an example of the improvement.
 
 COMPLEXITY:
-Big O time and space. One sentence per function if multiple exist.
+Rate the time and space complexity of the code using Big O notation.
+Explain your reasoning. If multiple functions exist, break down each one.
 
 SECURITY:
-Key vulnerabilities only. If none: No security issues found.
+A dedicated section for any security vulnerabilities beyond basic bugs. Cover:
+- Injection risks
+- Authentication or authorization flaws
+- Data exposure risks
+- Any OWASP Top 10 violations
+If none, write: No security issues found.
 
 SCORE:
-Single integer 0-100.
+A single integer from 0 to 100 representing overall production readiness.
+Use this scale:
+0-40: Not ready, fundamental issues
+41-60: Needs significant work
+61-80: Good foundation, improvements needed
+81-95: Near production ready
+96-100: Exceptional code
 
 SCORE_REASONING:
-3-5 sentences covering correctness, security, performance, readability, and best practices.
+A detailed breakdown of exactly why the code received this score. Reference specific
+issues you found in the previous sections. Weight your reasoning across these dimensions:
+- Correctness (does it actually work): 30%
+- Security (is it safe to deploy): 25%
+- Performance (is it efficient): 20%
+- Readability (can another engineer maintain it): 15%
+- Best practices (does it follow language conventions): 10%
 
-Be specific. A developer should be able to read this and know exactly what they need to 
+Be specific. A developer should be able to read this and know exactly what they need to
 fix to raise their score.
 
 Here is the code to review:
-````{language}
+```{language}
 {code}
 ```"""
             }
@@ -277,7 +316,7 @@ def explain_repo():
         return err
 
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-opus-4-5",
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -348,8 +387,20 @@ def explain_file():
     if not content:
         return jsonify({"error": "No content provided"}), 400
 
+    content_hash = hashlib.sha256(content[:4000].encode()).hexdigest()
+    db = next(get_db())
+    cached = db.query(FileAnalysis).filter(FileAnalysis.content_hash == content_hash).first()
+    if cached:
+        return jsonify({
+            "summary": cached.summary,
+            "tech": cached.tech,
+            "concepts": cached.concepts,
+            "purpose": cached.purpose,
+            "cached": True,
+        })
+
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-opus-4-5",
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -402,12 +453,21 @@ Filename: {filename}
             current_content.append(line)
             sections[current_section] = "\n".join(current_content).strip()
 
-    return jsonify({
+    result = {
         "summary": sanitize_ai_section(sections.get("summary", "")),
         "tech": sanitize_ai_section(sections.get("tech", "")),
         "concepts": sanitize_ai_section(sections.get("concepts", "")),
         "purpose": sanitize_ai_section(sections.get("purpose", "")),
-    })
+    }
+
+    db.add(FileAnalysis(
+        content_hash=content_hash,
+        filename=filename,
+        **result,
+    ))
+    db.commit()
+
+    return jsonify(result)
 
 
 if __name__ == "__main__":
