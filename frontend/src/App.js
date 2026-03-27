@@ -225,8 +225,8 @@ function App() {
   };
 
   useEffect(() => {
-    if (githubToken) loadRepos();
-  }, [githubToken]);
+      if (githubToken) loadRepos();
+    }, [githubToken, loadRepos]);
 
   // ── Select a repo and load its file tree ──
   const handleSelectRepo = async (repo) => {
