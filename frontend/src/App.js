@@ -285,7 +285,7 @@ useEffect(() => {
     }
   };
 
-  // ── Select a file and get AI explanation ──
+  // ── Select a file — just load content, no analysis ──
   const handleSelectFile = async (file) => {
     setSelectedFile(file);
     setFileContent("");
@@ -300,9 +300,20 @@ useEffect(() => {
         { headers: { Authorization: `Bearer ${githubToken}` } }
       );
       const data = await res.json();
-      const content = data.decoded_content || "";
-      setFileContent(content);
+      setFileContent(data.decoded_content || "");
+    } catch {
+      console.error("Failed to load file");
+    } finally {
+      setFileLoading(false);
+    }
+  };
 
+  // ── Analyze the currently open file ──
+  const handleAnalyzeFile = async () => {
+    if (!selectedFile || !fileContent) return;
+    setRepoResult(null);
+    setFileLoading(true);
+    try {
       const reviewRes = await fetch(`${API}/review`, {
         method: "POST",
         headers: {
@@ -311,8 +322,8 @@ useEffect(() => {
           ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
         },
         body: JSON.stringify({
-          code: content.slice(0, 4000),
-          language: file.path.split(".").pop() || "unknown",
+          code: fileContent.slice(0, 4000),
+          language: selectedFile.path.split(".").pop() || "unknown",
         }),
       });
       const reviewData = await reviewRes.json();
@@ -713,11 +724,20 @@ useEffect(() => {
               )
             ) : (
               <>
-                <div className="px-5 py-3 border-b border-gray-800 flex items-center gap-2">
-                  <span className="text-xs text-gray-500 font-mono">{selectedFile.path}</span>
-                  {fileLoading && (
-                    <div className="w-4 h-4 border border-blue-500 border-t-transparent rounded-full animate-spin ml-2" />
-                  )}
+                <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 font-mono">{selectedFile.path}</span>
+                    {fileLoading && (
+                      <div className="w-4 h-4 border border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                  <button
+                    onClick={handleAnalyzeFile}
+                    disabled={fileLoading || !fileContent}
+                    className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Analyze →
+                  </button>
                 </div>
                 <pre className="flex-1 overflow-auto p-5 text-gray-300 font-mono text-xs leading-6">
                   {fileContent}
