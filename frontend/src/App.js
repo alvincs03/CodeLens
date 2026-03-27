@@ -208,25 +208,24 @@ function App() {
   };
 
   // ── Load repos after GitHub login ──
-  const loadRepos = async () => {
+useEffect(() => {
     if (!githubToken) return;
-    setRepoLoading(true);
-    try {
-      const res = await fetch(`${API}/github/repos`, {
-        headers: { Authorization: `Bearer ${githubToken}` },
-      });
-      const data = await res.json();
-      setRepos(data);
-    } catch {
-      console.error("Failed to load repos");
-    } finally {
-      setRepoLoading(false);
-    }
-  };
-
-  useEffect(() => {
-      if (githubToken) loadRepos();
-    }, [githubToken, loadRepos]);
+    const loadRepos = async () => {
+      setRepoLoading(true);
+      try {
+        const res = await fetch(`${API}/github/repos`, {
+          headers: { Authorization: `Bearer ${githubToken}` },
+        });
+        const data = await res.json();
+        setRepos(data);
+      } catch {
+        console.error("Failed to load repos");
+      } finally {
+        setRepoLoading(false);
+      }
+    };
+    loadRepos();
+  }, [githubToken]);
 
   // ── Select a repo and load its file tree ──
   const handleSelectRepo = async (repo) => {
