@@ -217,11 +217,14 @@ function App() {
         },
         body: JSON.stringify({ code, language }),
       });
-      const data = await response.json();
-      if (!response.ok) { setError(data.error || "Something went wrong"); return; }
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(data?.error || `Server error (${response.status}) — check your API key or try again`);
+        return;
+      }
       setResult(data);
     } catch {
-      setError("Could not connect to the server. Is your backend running?");
+      setError("Could not reach the server. Check your network or try again.");
     } finally {
       setLoading(false);
     }

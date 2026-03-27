@@ -127,74 +127,36 @@ def review_code():
     db.refresh(submission)
 
     message = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=4096,
-        system="""You are a senior software engineer with 15+ years of experience across systems design, 
-security, performance optimization, and clean code principles. You have conducted thousands of code reviews 
-at top-tier tech companies. Your job is not just to find bugs. It is to teach the developer why something 
-is wrong, what the consequences are if left unfixed, and exactly how to fix it. You are direct, precise, 
-and educational. You do not sugarcoat issues. You treat the developer as someone who is capable of 
-understanding the truth about their code.""",
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2048,
+        system="""You are a senior software engineer with 15+ years of experience. You review code with precision and directness. Be concise — every word must earn its place. No padding, no repetition.""",
         messages=[
             {
                 "role": "user",
-                "content": f"""Review the following {language} code with the thoroughness of a senior engineer 
-preparing it for a production deployment at a high-scale company.
+                "content": f"""Review this {language} code. Be concise and direct in every section.
 
-Respond in exactly this format with no deviations:
+Respond in exactly this format:
 
 EXPLANATION:
-A thorough plain-English explanation of what this code does, how it works step by step, 
-and what problem it is trying to solve. Explain it as if the developer who wrote it 
-needs to be able to defend every line in a technical interview.
+2-4 sentences on what this code does and what problem it solves.
 
 BUGS:
-A numbered list of every bug, logic error, edge case failure, and security vulnerability 
-you find. For each one:
-- Describe exactly what the bug is
-- Explain what will happen at runtime if it is not fixed
-- Show the corrected code snippet
-
-If no bugs are found, write: None found.
+Numbered list. For each bug: what it is, what breaks at runtime, and the fix. If none: None found.
 
 SUGGESTIONS:
-A numbered list of concrete improvements covering:
-- Code readability and maintainability
-- Performance optimizations
-- Better design patterns or architectural choices
-- Error handling gaps
-- Any violation of language-specific best practices
-For each suggestion, explain why it matters and show an example of the improvement.
+Numbered list of the top improvements only. Each suggestion: one sentence on why it matters, one code example.
 
 COMPLEXITY:
-Rate the time and space complexity of the code using Big O notation. 
-Explain your reasoning. If multiple functions exist, break down each one.
+Big O time and space. One sentence per function if multiple exist.
 
 SECURITY:
-A dedicated section for any security vulnerabilities beyond basic bugs. Cover:
-- Injection risks
-- Authentication or authorization flaws
-- Data exposure risks
-- Any OWASP Top 10 violations
-If none, write: No security issues found.
+Key vulnerabilities only. If none: No security issues found.
 
 SCORE:
-A single integer from 0 to 100 representing overall production readiness.
-Use this scale:
-0-40: Not ready, fundamental issues
-41-60: Needs significant work
-61-80: Good foundation, improvements needed
-81-95: Near production ready
-96-100: Exceptional code
+Single integer 0-100.
 
 SCORE_REASONING:
-A detailed breakdown of exactly why the code received this score. Reference specific 
-issues you found in the previous sections. Weight your reasoning across these dimensions:
-- Correctness (does it actually work): 30%
-- Security (is it safe to deploy): 25%
-- Performance (is it efficient): 20%
-- Readability (can another engineer maintain it): 15%
-- Best practices (does it follow language conventions): 10%
+3-5 sentences covering correctness, security, performance, readability, and best practices.
 
 Be specific. A developer should be able to read this and know exactly what they need to 
 fix to raise their score.
@@ -315,7 +277,7 @@ def explain_repo():
         return err
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-haiku-4-5-20251001",
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -387,7 +349,7 @@ def explain_file():
         return jsonify({"error": "No content provided"}), 400
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model="claude-haiku-4-5-20251001",
         max_tokens=2048,
         messages=[{
             "role": "user",
