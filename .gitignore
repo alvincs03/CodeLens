@@ -3,5 +3,6 @@ backend/.env
 backend/flask_session/
 __pycache__/
 *.pyc
+.env
 node_modules/
 frontend/build/

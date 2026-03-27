@@ -15,7 +15,10 @@ import os
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+CORS(app, supports_credentials=True, origins=[
+    "http://localhost:3000",
+    os.getenv("FRONTEND_URL", "")
+])
 
 limiter = Limiter(
     get_remote_address,

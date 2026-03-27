@@ -1,11 +1,13 @@
 from flask import Blueprint, redirect, request, jsonify
 import requests
+import base64
 import os
 
 github_bp = Blueprint("github", __name__)
 
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 @github_bp.route("/auth/github")
 def github_login():
@@ -21,7 +23,7 @@ def github_callback():
     code = request.args.get("code")
 
     if not code:
-        return redirect("http://localhost:3000?error=no_code")
+        return redirect(f"{FRONTEND_URL}?error=no_code")
 
     token_response = requests.post(
         "https://github.com/login/oauth/access_token",
@@ -37,9 +39,8 @@ def github_callback():
     access_token = token_data.get("access_token")
 
     if not access_token:
-        return redirect("http://localhost:3000?error=no_token")
+        return redirect(f"{FRONTEND_URL}?error=no_token")
 
-    # Fetch GitHub user profile
     user_response = requests.get(
         "https://api.github.com/user",
         headers={
@@ -51,9 +52,8 @@ def github_callback():
     login = user_data.get("login", "")
     avatar = user_data.get("avatar_url", "")
 
-    # Pass token and user info back to frontend in URL
     return redirect(
-        f"http://localhost:3000?github=connected"
+        f"{FRONTEND_URL}?github=connected"
         f"&token={access_token}"
         f"&login={login}"
         f"&avatar={avatar}"
@@ -132,9 +132,7 @@ def get_file():
 
     data = file_response.json()
 
-    # Decode base64 content
     if "content" in data:
-        import base64
         content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
         data["decoded_content"] = content
 
