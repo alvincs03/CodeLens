@@ -7,12 +7,42 @@ from anthropic import Anthropic
 from database import engine, get_db
 from models import Submission, Base
 from dotenv import load_dotenv
+from functools import wraps
 import requests
 import base64
 import re
 import os
+import time
 
 load_dotenv()
+
+# ── GitHub token validation cache ─────────────────────────────────────────────
+_token_cache = {}  # token -> (is_valid, timestamp)
+TOKEN_CACHE_TTL = 300  # 5 minutes
+
+def _validate_github_token(token):
+    now = time.time()
+    if token in _token_cache:
+        valid, ts = _token_cache[token]
+        if now - ts < TOKEN_CACHE_TTL:
+            return valid
+    resp = requests.get(
+        "https://api.github.com/user",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        timeout=5,
+    )
+    valid = resp.status_code == 200
+    _token_cache[token] = (valid, now)
+    return valid
+
+def require_github_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+        if not token or not _validate_github_token(token):
+            return jsonify({"error": "GitHub authentication required. Please sign in with GitHub."}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=[
@@ -29,7 +59,15 @@ limiter = Limiter(
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
 app.register_blueprint(github_bp)
 Base.metadata.create_all(bind=engine)
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+def get_anthropic_client():
+    user_key = request.headers.get("X-Api-Key", "").strip()
+    if not user_key:
+        return None, (jsonify({"error": "No Anthropic API key provided. Add your key in the settings panel."}), 402)
+    try:
+        return Anthropic(api_key=user_key), None
+    except Exception:
+        return None, (jsonify({"error": "Invalid Anthropic API key."}), 402)
 
 def sanitize_ai_section(text):
     if not text:
@@ -41,6 +79,7 @@ def sanitize_ai_section(text):
 
 @app.route("/review", methods=["POST"])
 @limiter.limit("10 per hour")
+@require_github_auth
 def review_code():
     data = request.get_json()
     code = data.get("code")
@@ -51,6 +90,10 @@ def review_code():
 
     if len(code) > 5000:
         return jsonify({"error": "Code exceeds 5000 character limit."}), 400
+
+    client, err = get_anthropic_client()
+    if err:
+        return err
 
     db = next(get_db())
 
@@ -213,10 +256,9 @@ Here is the code to review:
     })
 
 @app.route("/github/explain-repo", methods=["POST"])
+@require_github_auth
 def explain_repo():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    if not token:
-        return jsonify({"error": "Not authenticated"}), 401
 
     data = request.get_json()
     owner = data.get("owner")
@@ -259,6 +301,10 @@ def explain_repo():
         return jsonify({"error": "No readable source files found"}), 400
 
     combined = "\n\n".join(file_sections)
+
+    client, err = get_anthropic_client()
+    if err:
+        return err
 
     message = client.messages.create(
         model="claude-opus-4-5",

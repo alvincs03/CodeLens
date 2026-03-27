@@ -147,6 +147,24 @@ function App() {
   const [githubToken, setGithubToken] = useState(null);
   const [githubUser, setGithubUser] = useState(null);
 
+  // API key state — persisted in localStorage
+  const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
+  const [showKeyPanel, setShowKeyPanel] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
+
+  const saveKey = () => {
+    const trimmed = keyDraft.trim();
+    localStorage.setItem("anthropic_key", trimmed);
+    setAnthropicKey(trimmed);
+    setShowKeyPanel(false);
+    setKeyDraft("");
+  };
+
+  const removeKey = () => {
+    localStorage.removeItem("anthropic_key");
+    setAnthropicKey("");
+  };
+
   // Snippet mode state
   const [code, setCode] = useState("");
   const [language, setLanguage] = useState("python");
@@ -194,7 +212,11 @@ function App() {
     try {
       const response = await fetch(`${API}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
+          ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
+        },
         body: JSON.stringify({ code, language }),
       });
       const data = await response.json();
@@ -283,7 +305,11 @@ useEffect(() => {
 
       const reviewRes = await fetch(`${API}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(githubToken ? { Authorization: `Bearer ${githubToken}` } : {}),
+          ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
+        },
         body: JSON.stringify({
           code: content.slice(0, 4000),
           language: file.path.split(".").pop() || "unknown",
@@ -310,6 +336,7 @@ useEffect(() => {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${githubToken}`,
+          ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
         },
         body: JSON.stringify({ owner, repo: repoName }),
       });
@@ -355,6 +382,45 @@ useEffect(() => {
             </button>
           </div>
 
+          {/* Anthropic API Key */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowKeyPanel((p) => !p); setKeyDraft(anthropicKey); }}
+              className={`flex items-center gap-2 border text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
+                anthropicKey
+                  ? "bg-green-900/30 border-green-700 text-green-400 hover:bg-green-900/50"
+                  : "bg-yellow-900/30 border-yellow-700 text-yellow-400 hover:bg-yellow-900/50"
+              }`}
+            >
+              {anthropicKey ? "API Key ✓" : "Add API Key"}
+            </button>
+
+            {showKeyPanel && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-gray-900 border border-gray-700 rounded-xl p-4 z-50 shadow-2xl">
+                <p className="text-xs text-gray-400 mb-1 font-semibold">Anthropic API Key</p>
+                <p className="text-xs text-gray-600 mb-3">Stored in your browser only. Never sent to our server except to call Claude.</p>
+                <input
+                  type="password"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveKey()}
+                  placeholder="sk-ant-..."
+                  className="w-full bg-gray-800 text-gray-100 text-sm rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 font-mono mb-3"
+                />
+                <div className="flex gap-2">
+                  <button onClick={saveKey} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors">
+                    Save
+                  </button>
+                  {anthropicKey && (
+                    <button onClick={removeKey} className="flex-1 bg-gray-800 hover:bg-red-900/40 text-gray-400 hover:text-red-400 text-xs font-semibold py-1.5 rounded-lg transition-colors border border-gray-700">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* GitHub Auth */}
           {githubUser ? (
             <div className="flex items-center gap-2">
@@ -379,7 +445,38 @@ useEffect(() => {
       </div>
 
       {/* ── SNIPPET MODE ── */}
-      {mode === "snippet" && (
+      {mode === "snippet" && (!githubUser || !anthropicKey) && (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center flex flex-col items-center gap-6 max-w-sm">
+            <div className="flex flex-col items-center gap-2">
+              <span className={`text-2xl ${githubUser ? "opacity-30" : ""}`}>①</span>
+              <p className={`text-sm font-semibold ${githubUser ? "text-gray-600 line-through" : "text-gray-200"}`}>Connect GitHub</p>
+              {!githubUser && (
+                <a
+                  href={`${API}/auth/github`}
+                  className="mt-1 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-200 text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+                >
+                  Connect GitHub
+                </a>
+              )}
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <span className={`text-2xl ${anthropicKey ? "opacity-30" : ""}`}>②</span>
+              <p className={`text-sm font-semibold ${anthropicKey ? "text-gray-600 line-through" : "text-gray-200"}`}>Add your Anthropic API key</p>
+              {!anthropicKey && (
+                <button
+                  onClick={() => setShowKeyPanel(true)}
+                  className="mt-1 bg-yellow-900/40 hover:bg-yellow-900/60 border border-yellow-700 text-yellow-300 text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+                >
+                  Add API Key
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mode === "snippet" && githubUser && anthropicKey && (
         <div className="flex flex-1 overflow-hidden">
 
           {/* Left — Input */}
