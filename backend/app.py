@@ -48,7 +48,7 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=[
     "http://localhost:3000",
     os.getenv("FRONTEND_URL", "")
-])
+], allow_headers=["Content-Type", "Authorization", "X-Api-Key"])
 
 limiter = Limiter(
     get_remote_address,

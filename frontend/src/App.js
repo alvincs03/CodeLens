@@ -592,7 +592,7 @@ useEffect(() => {
       {mode === "repo" && (
         <div className="flex flex-1 overflow-hidden">
 
-          {/* Left — Repo list + file tree */}
+          {/* Left — Repo list OR file tree */}
           <div className="w-64 border-r border-gray-800 flex flex-col overflow-hidden">
 
             {!githubToken ? (
@@ -605,9 +605,50 @@ useEffect(() => {
                   Connect GitHub
                 </a>
               </div>
+            ) : selectedRepo ? (
+              <>
+                {/* Back button + repo name */}
+                <div className="p-3 border-b border-gray-800 flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      setSelectedRepo(null);
+                      setRepoTree([]);
+                      setSelectedFile(null);
+                      setFileContent("");
+                      setRepoResult(null);
+                      setRepoSummary(null);
+                      setReadmeContent("");
+                    }}
+                    className="flex items-center gap-1.5 text-gray-400 hover:text-gray-200 text-xs font-medium transition-colors"
+                  >
+                    <span>←</span> All repos
+                  </button>
+                </div>
+                <div className="px-4 py-2 border-b border-gray-800 shrink-0">
+                  <p className="text-sm text-gray-200 font-semibold truncate">{selectedRepo.name}</p>
+                  {selectedRepo.language && (
+                    <p className="text-xs text-gray-500 mt-0.5">{selectedRepo.language}</p>
+                  )}
+                </div>
+
+                {/* File tree */}
+                <div className="overflow-y-auto flex-1 p-2">
+                  {repoTree.length === 0 ? (
+                    <div className="flex items-center justify-center p-8">
+                      <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <FileTree
+                      tree={repoTree}
+                      onSelectFile={handleSelectFile}
+                      selectedPath={selectedFile?.path}
+                    />
+                  )}
+                </div>
+              </>
             ) : (
               <>
-                <div className="p-4 border-b border-gray-800">
+                <div className="p-4 border-b border-gray-800 shrink-0">
                   <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Your Repos</p>
                 </div>
                 <div className="overflow-y-auto flex-1">
@@ -620,9 +661,7 @@ useEffect(() => {
                     <button
                       key={repo.id}
                       onClick={() => handleSelectRepo(repo)}
-                      className={`w-full text-left px-4 py-3 border-b border-gray-800/50 hover:bg-gray-800 transition-colors ${
-                        selectedRepo?.id === repo.id ? "bg-gray-800 border-l-2 border-l-blue-500" : ""
-                      }`}
+                      className="w-full text-left px-4 py-3 border-b border-gray-800/50 hover:bg-gray-800 transition-colors"
                     >
                       <p className="text-sm text-gray-200 font-medium truncate">{repo.name}</p>
                       {repo.language && (
@@ -631,22 +670,6 @@ useEffect(() => {
                     </button>
                   ))}
                 </div>
-
-                {/* File tree */}
-                {repoTree.length > 0 && (
-                  <>
-                    <div className="p-4 border-t border-b border-gray-800">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Files</p>
-                    </div>
-                    <div className="overflow-y-auto flex-1 p-2">
-                      <FileTree
-                        tree={repoTree}
-                        onSelectFile={handleSelectFile}
-                        selectedPath={selectedFile?.path}
-                      />
-                    </div>
-                  </>
-                )}
               </>
             )}
           </div>
