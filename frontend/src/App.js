@@ -324,10 +324,10 @@ useEffect(() => {
           filename: selectedFile.path,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
       setRepoResult(data);
-    } catch {
-      setRepoResult({ error: "Failed to analyze file." });
+    } catch (err) {
+      setRepoResult({ error: "Failed to reach the server." });
     } finally {
       setFileLoading(false);
     }

@@ -69,6 +69,14 @@ def get_anthropic_client():
     except Exception:
         return None, (jsonify({"error": "Invalid Anthropic API key."}), 402)
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Check if it looks like an Anthropic auth error
+    msg = str(e)
+    if "401" in msg or "auth" in msg.lower() or "api_key" in msg.lower() or "authentication" in msg.lower():
+        return jsonify({"error": "Invalid or revoked Anthropic API key. Please enter a valid key."}), 402
+    return jsonify({"error": "An unexpected error occurred on the server."}), 500
+
 def sanitize_ai_section(text):
     if not text:
         return ""
