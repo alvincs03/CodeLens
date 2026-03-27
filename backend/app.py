@@ -364,5 +364,79 @@ Here are the files:
     })
 
 
+@app.route("/github/explain-file", methods=["POST"])
+@require_github_auth
+def explain_file():
+    client, err = get_anthropic_client()
+    if err:
+        return err
+
+    data = request.get_json()
+    content = data.get("content", "")
+    filename = data.get("filename", "unknown")
+
+    if not content:
+        return jsonify({"error": "No content provided"}), 400
+
+    message = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=2048,
+        messages=[{
+            "role": "user",
+            "content": f"""You are a senior software engineer with 15+ years of experience across systems design, architecture, and multiple languages. Analyze this file thoroughly.
+
+Respond in exactly this format with no deviations:
+
+SUMMARY:
+A direct, technical explanation of what this file does and why it exists. Explain it the way you would during a code walkthrough with another engineer — what is its responsibility, what does it own, and what would break if it were removed.
+
+TECH:
+Every language, framework, library, and external dependency imported or referenced in this file. For each one, state exactly what it is used for in this specific file. Be specific — not just "React" but "React hooks (useState, useEffect) for managing component-level state and side effects."
+
+CONCEPTS:
+The key programming concepts, design patterns, and architectural decisions at work in this file. Examples: dependency injection, event-driven design, memoization, middleware pattern, singleton, etc. For each concept, explain concretely where and how it appears in this file.
+
+PURPOSE:
+From your perspective as a senior engineer, explain the design decisions behind this file. What problem is it solving? What tradeoffs were made? How does it fit into the broader system? What would you flag for a junior engineer reading this for the first time?
+
+Filename: {filename}
+
+```
+{content[:4000]}
+```"""
+        }]
+    )
+
+    response_text = message.content[0].text
+    sections = {}
+    current_section = None
+    current_content = []
+
+    for line in response_text.split("\n"):
+        matched = False
+        for header, key in [
+            ("SUMMARY:", "summary"), ("TECH:", "tech"),
+            ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
+        ]:
+            if line.startswith(header):
+                current_section = key
+                inline = line[len(header):].strip()
+                current_content = [inline] if inline else []
+                if current_content:
+                    sections[current_section] = "\n".join(current_content).strip()
+                matched = True
+                break
+        if not matched and current_section:
+            current_content.append(line)
+            sections[current_section] = "\n".join(current_content).strip()
+
+    return jsonify({
+        "summary": sanitize_ai_section(sections.get("summary", "")),
+        "tech": sanitize_ai_section(sections.get("tech", "")),
+        "concepts": sanitize_ai_section(sections.get("concepts", "")),
+        "purpose": sanitize_ai_section(sections.get("purpose", "")),
+    })
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

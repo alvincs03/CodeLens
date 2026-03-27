@@ -314,7 +314,7 @@ useEffect(() => {
     setRepoResult(null);
     setFileLoading(true);
     try {
-      const reviewRes = await fetch(`${API}/review`, {
+      const res = await fetch(`${API}/github/explain-file`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -322,14 +322,14 @@ useEffect(() => {
           ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
         },
         body: JSON.stringify({
-          code: fileContent.slice(0, 4000),
-          language: selectedFile.path.split(".").pop() || "unknown",
+          content: fileContent.slice(0, 4000),
+          filename: selectedFile.path,
         }),
       });
-      const reviewData = await reviewRes.json();
-      setRepoResult(reviewData);
+      const data = await res.json();
+      setRepoResult(data);
     } catch {
-      setRepoResult(null);
+      setRepoResult({ error: "Failed to analyze file." });
     } finally {
       setFileLoading(false);
     }
@@ -793,41 +793,32 @@ useEffect(() => {
             )}
 
             {repoResult && selectedFile && !fileLoading && (
-              repoResult.error || !repoResult.score ? (
+              repoResult.error ? (
                 <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
-                  <p className="text-red-400 text-sm">{repoResult.error || repoResult.message || "Analysis failed. You may have hit the rate limit (10/hour)."}</p>
+                  <p className="text-red-400 text-sm">{repoResult.error}</p>
                 </div>
               ) : (
-              <>
-                <div className="bg-gray-900 rounded-xl border border-gray-700 p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Score</span>
-                    <span className={`text-3xl font-bold ${repoResult.score >= 80 ? "text-green-300" : repoResult.score >= 60 ? "text-yellow-300" : "text-red-300"}`}>
-                      {repoResult.score}<span className="text-gray-600 text-base">/100</span>
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-800 rounded-full h-2 mb-3">
-                    <div
-                      className={`h-2 rounded-full ${repoResult.score >= 80 ? "bg-green-400" : repoResult.score >= 60 ? "bg-yellow-400" : "bg-red-400"}`}
-                      style={{ width: `${repoResult.score}%` }}
-                    />
-                  </div>
-                </div>
-
-                <Section title="What This File Does" color="gray" defaultOpen={true}>
-                  {normalizeAiText(repoResult.explanation)}
-                </Section>
-                <Section title="Bugs & Vulnerabilities" color="red">
-                  {normalizeAiText(repoResult.bugs)}
-                </Section>
-                <Section title="Suggestions" color="blue">
-                  {normalizeAiText(repoResult.suggestions)}
-                </Section>
-                <Section title="Security" color="yellow">
-                  {normalizeAiText(repoResult.security)}
-                </Section>
-              </>
+                <>
+                  <Section title="Summary" color="gray" defaultOpen={true}>
+                    {normalizeAiText(repoResult.summary)}
+                  </Section>
+                  <Section title="Tech & Dependencies" color="blue" defaultOpen={true}>
+                    {normalizeAiText(repoResult.tech)}
+                  </Section>
+                  <Section title="Concepts & Patterns" color="purple" defaultOpen={true}>
+                    {normalizeAiText(repoResult.concepts)}
+                  </Section>
+                  <Section title="Engineer's Perspective" color="yellow" defaultOpen={true}>
+                    {normalizeAiText(repoResult.purpose)}
+                  </Section>
+                </>
               )
+            )}
+
+            {selectedFile && !fileLoading && !repoResult && (
+              <div className="flex-1 flex items-center justify-center h-full">
+                <p className="text-gray-700 text-sm text-center">Press "Analyze →" to get a breakdown of this file</p>
+              </div>
             )}
           </div>
         </div>
