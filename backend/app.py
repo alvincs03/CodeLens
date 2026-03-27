@@ -135,70 +135,41 @@ security, performance optimization, and clean code principles. You have conducte
 at top-tier tech companies. Your job is not just to find bugs — it is to teach the developer why something
 is wrong, what the consequences are if left unfixed, and exactly how to fix it. You are direct, precise,
 and educational. You do not sugarcoat issues. You treat the developer as someone capable of understanding
-the truth about their code.""",
+the truth about their code.
+
+CRITICAL FORMATTING RULES — YOU MUST FOLLOW THESE EXACTLY:
+1. Each section header must appear on its own line, in plain uppercase text, followed immediately by a colon. Example: EXPLANATION:
+2. Do not use any markdown formatting on section headers. No bold (**EXPLANATION:**), no italic, no hashes (## EXPLANATION), no underscores. The header must be the raw word followed by a colon and nothing else on that line.
+3. Do not add any text, preamble, or commentary before the first section header.
+4. Do not skip any section. All seven sections are required in every response.
+5. The section order must be exactly: EXPLANATION, BUGS, SUGGESTIONS, COMPLEXITY, SECURITY, SCORE, SCORE_REASONING.""",
         messages=[
             {
                 "role": "user",
-                "content": f"""Review the following {language} code with the thoroughness of a senior engineer
-preparing it for a production deployment at a high-scale company.
+                "content": f"""Review the following {language} code with the thoroughness of a senior engineer preparing it for a production deployment at a high-scale company.
 
-Respond in exactly this format with no deviations:
+Your response must use this exact structure. Each header must be a plain uppercase word followed by a colon on its own line — no bold, no markdown, no hashes, no extra formatting of any kind on the header line itself.
 
 EXPLANATION:
-A thorough plain-English explanation of what this code does, how it works step by step,
-and what problem it is trying to solve. Explain it as if the developer who wrote it
-needs to be able to defend every line in a technical interview.
+Write a thorough plain-English explanation of what this code does, how it works step by step, and what problem it is trying to solve. Explain it as if the developer who wrote it needs to be able to defend every line in a technical interview. Cover the inputs, outputs, control flow, and any important state changes.
 
 BUGS:
-A numbered list of every bug, logic error, edge case failure, and security vulnerability
-you find. For each one:
-- Describe exactly what the bug is
-- Explain what will happen at runtime if it is not fixed
-- Show the corrected code snippet
-
-If no bugs are found, write: None found.
+Write a numbered list of every bug, logic error, edge case failure, and security vulnerability you find. For each one, describe exactly what the bug is, explain what will happen at runtime if it is not fixed, and show the corrected code snippet. If no bugs are found, write: None found.
 
 SUGGESTIONS:
-A numbered list of concrete improvements covering:
-- Code readability and maintainability
-- Performance optimizations
-- Better design patterns or architectural choices
-- Error handling gaps
-- Any violation of language-specific best practices
-For each suggestion, explain why it matters and show an example of the improvement.
+Write a numbered list of concrete improvements covering code readability and maintainability, performance optimizations, better design patterns or architectural choices, error handling gaps, and any violation of language-specific best practices. For each suggestion explain why it matters and show an example of the improvement.
 
 COMPLEXITY:
-Rate the time and space complexity of the code using Big O notation.
-Explain your reasoning. If multiple functions exist, break down each one.
+Rate the time and space complexity of the code using Big O notation. Explain your reasoning in detail. If multiple functions exist, break down each one individually.
 
 SECURITY:
-A dedicated section for any security vulnerabilities beyond basic bugs. Cover:
-- Injection risks
-- Authentication or authorization flaws
-- Data exposure risks
-- Any OWASP Top 10 violations
-If none, write: No security issues found.
+Write a dedicated analysis of any security vulnerabilities beyond the basic bugs already listed. Cover injection risks, authentication or authorization flaws, data exposure risks, and any OWASP Top 10 violations. If none exist, write: No security issues found.
 
 SCORE:
-A single integer from 0 to 100 representing overall production readiness.
-Use this scale:
-0-40: Not ready, fundamental issues
-41-60: Needs significant work
-61-80: Good foundation, improvements needed
-81-95: Near production ready
-96-100: Exceptional code
+Write a single integer from 0 to 100 representing overall production readiness. Use this scale: 0-40 means not ready with fundamental issues, 41-60 means needs significant work, 61-80 means good foundation with improvements needed, 81-95 means near production ready, 96-100 means exceptional code.
 
 SCORE_REASONING:
-A detailed breakdown of exactly why the code received this score. Reference specific
-issues you found in the previous sections. Weight your reasoning across these dimensions:
-- Correctness (does it actually work): 30%
-- Security (is it safe to deploy): 25%
-- Performance (is it efficient): 20%
-- Readability (can another engineer maintain it): 15%
-- Best practices (does it follow language conventions): 10%
-
-Be specific. A developer should be able to read this and know exactly what they need to
-fix to raise their score.
+Write a detailed breakdown of exactly why the code received this score. Reference specific issues found in the previous sections. Weight your reasoning across these dimensions: Correctness which counts for 30 percent, Security which counts for 25 percent, Performance which counts for 20 percent, Readability which counts for 15 percent, and Best practices which counts for 10 percent. Be specific enough that the developer knows exactly what to fix to raise their score.
 
 Here is the code to review:
 ```{language}
@@ -215,15 +186,16 @@ Here is the code to review:
 
     for line in response_text.split("\n"):
         matched = False
+        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
         for header, key in [
             ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
             ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
             ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
             ("SCORE:", "score"),
         ]:
-            if line.startswith(header):
+            if normalized.upper().startswith(header):
                 current_section = key
-                inline = line[len(header):].strip()
+                inline = normalized[len(header):].strip()
                 current_content = [inline] if inline else []
                 if current_content:
                     sections[current_section] = "\n".join(current_content).strip()
@@ -320,23 +292,28 @@ def explain_repo():
         max_tokens=2048,
         messages=[{
             "role": "user",
-            "content": f"""You are a senior software architect. Analyze these source files from the GitHub repo {owner}/{repo} and provide an architecture summary.
+            "content": f"""You are a senior software architect with 15+ years of experience designing and shipping large-scale systems. Analyze these source files from the GitHub repository {owner}/{repo} and produce a thorough architecture summary.
 
-Respond in exactly this format:
+CRITICAL FORMATTING RULES — YOU MUST FOLLOW THESE EXACTLY:
+1. Each section header must appear on its own line, in plain uppercase text, followed immediately by a colon. Example: SUMMARY:
+2. Do not use any markdown formatting on section headers. No bold (**SUMMARY:**), no hashes (## SUMMARY), no italic, no underscores. The header must be the raw uppercase word followed by a colon and nothing else on that line.
+3. Do not add any preamble, introduction, or commentary before the first section header.
+4. All four sections are required. Do not skip any.
+5. The section order must be exactly: SUMMARY, ARCHITECTURE, TECH_STACK, ENTRY_POINTS.
 
 SUMMARY:
-A 2-4 sentence plain-English description of what this codebase does and its primary purpose.
+Write a thorough plain-English description of what this codebase does, what problem it solves, and who it is built for. Explain the overall goal of the project as if briefing a new engineer joining the team.
 
 ARCHITECTURE:
-A breakdown of the key components, how they fit together, and the overall design pattern used.
+Write a detailed breakdown of the key components, how they interact with each other, the data flow between them, and the overall architectural pattern used. Identify whether it follows patterns such as MVC, layered architecture, microservices, event-driven, etc. and explain how those patterns are expressed in the code.
 
 TECH_STACK:
-A list of the primary languages, frameworks, and libraries detected.
+List every language, framework, library, and tool detected across the files. For each one explain specifically what role it plays in this project — not just what the technology is in general, but what it is doing here specifically.
 
 ENTRY_POINTS:
-The main entry points or key files a new developer should read first.
+List the main entry points and key files a new developer should read first to understand the system. For each file explain why it is important and what understanding it unlocks.
 
-Here are the files:
+Here are the source files:
 
 {combined}"""
         }]
@@ -349,13 +326,14 @@ Here are the files:
 
     for line in response_text.split("\n"):
         matched = False
+        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
         for header, key in [
             ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
             ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
         ]:
-            if line.startswith(header):
+            if normalized.upper().startswith(header):
                 current_section = key
-                inline = line[len(header):].strip()
+                inline = normalized[len(header):].strip()
                 current_content = [inline] if inline else []
                 if current_content:
                     sections[current_section] = "\n".join(current_content).strip()
@@ -404,21 +382,26 @@ def explain_file():
         max_tokens=2048,
         messages=[{
             "role": "user",
-            "content": f"""You are a senior software engineer with 15+ years of experience across systems design, architecture, and multiple languages. Analyze this file thoroughly.
+            "content": f"""You are a senior software engineer with 15+ years of experience across systems design, architecture, and multiple programming languages. Analyze this file thoroughly and produce a detailed breakdown.
 
-Respond in exactly this format with no deviations:
+CRITICAL FORMATTING RULES — YOU MUST FOLLOW THESE EXACTLY:
+1. Each section header must appear on its own line, in plain uppercase text, followed immediately by a colon. Example: SUMMARY:
+2. Do not use any markdown formatting on section headers. No bold (**SUMMARY:**), no hashes (## SUMMARY), no italic, no underscores. The header must be the raw uppercase word followed by a colon and nothing else on that line.
+3. Do not add any preamble, introduction, or commentary before the first section header.
+4. All four sections are required. Do not skip any.
+5. The section order must be exactly: SUMMARY, TECH, CONCEPTS, PURPOSE.
 
 SUMMARY:
-A direct, technical explanation of what this file does and why it exists. Explain it the way you would during a code walkthrough with another engineer — what is its responsibility, what does it own, and what would break if it were removed.
+Write a direct and technical explanation of what this file does and why it exists. Explain it the way you would during a code walkthrough with another senior engineer. Cover what this file is responsible for, what it owns, what calls it, what it calls, and what would break in the system if this file were removed or corrupted.
 
 TECH:
-Every language, framework, library, and external dependency imported or referenced in this file. For each one, state exactly what it is used for in this specific file. Be specific — not just "React" but "React hooks (useState, useEffect) for managing component-level state and side effects."
+List every language, framework, library, and external dependency imported or referenced in this file. For each one state exactly what it is used for in this specific file. Be precise and specific — do not just name the technology, explain its role here. For example do not write "React" — write "React hooks useState and useEffect are used to manage component-level state for the API key input and to trigger side effects when the GitHub token changes."
 
 CONCEPTS:
-The key programming concepts, design patterns, and architectural decisions at work in this file. Examples: dependency injection, event-driven design, memoization, middleware pattern, singleton, etc. For each concept, explain concretely where and how it appears in this file.
+List every key programming concept, design pattern, and architectural decision at work in this file. Examples include dependency injection, event-driven design, memoization, middleware pattern, singleton, decorator pattern, caching strategy, rate limiting, OAuth flow, etc. For each concept explain concretely and specifically where and how it appears in this file, referencing the actual functions or lines involved.
 
 PURPOSE:
-From your perspective as a senior engineer, explain the design decisions behind this file. What problem is it solving? What tradeoffs were made? How does it fit into the broader system? What would you flag for a junior engineer reading this for the first time?
+Write your perspective as a senior engineer on the design decisions made in this file. Explain what problem it is solving and why it was built this way. Identify any tradeoffs that were made. Explain how this file fits into the broader system architecture. Flag anything a junior engineer reading this file for the first time might misunderstand, misuse, or overlook. Be direct and specific.
 
 Filename: {filename}
 
