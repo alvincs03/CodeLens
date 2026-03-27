@@ -147,21 +147,19 @@ function App() {
   const [githubToken, setGithubToken] = useState(null);
   const [githubUser, setGithubUser] = useState(null);
 
-  // API key state — persisted in localStorage
-  const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
+  // API key state — session only, never persisted
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
 
   const saveKey = () => {
     const trimmed = keyDraft.trim();
-    localStorage.setItem("anthropic_key", trimmed);
     setAnthropicKey(trimmed);
     setShowKeyPanel(false);
     setKeyDraft("");
   };
 
   const removeKey = () => {
-    localStorage.removeItem("anthropic_key");
     setAnthropicKey("");
   };
 

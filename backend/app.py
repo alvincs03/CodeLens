@@ -414,13 +414,15 @@ Filename: {filename}
 
     for line in response_text.split("\n"):
         matched = False
+        # Strip leading markdown (**, ##, __, spaces) before header matching
+        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
         for header, key in [
             ("SUMMARY:", "summary"), ("TECH:", "tech"),
             ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
         ]:
-            if line.startswith(header):
+            if normalized.upper().startswith(header):
                 current_section = key
-                inline = line[len(header):].strip()
+                inline = normalized[len(header):].strip()
                 current_content = [inline] if inline else []
                 if current_content:
                     sections[current_section] = "\n".join(current_content).strip()
