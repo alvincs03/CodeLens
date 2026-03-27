@@ -162,28 +162,22 @@ Here is the code to review:
     current_content = []
 
     for line in response_text.split("\n"):
-        if line.startswith("EXPLANATION:"):
-            current_section = "explanation"
-            current_content = []
-        elif line.startswith("BUGS:"):
-            current_section = "bugs"
-            current_content = []
-        elif line.startswith("SUGGESTIONS:"):
-            current_section = "suggestions"
-            current_content = []
-        elif line.startswith("COMPLEXITY:"):
-            current_section = "complexity"
-            current_content = []
-        elif line.startswith("SECURITY:"):
-            current_section = "security"
-            current_content = []
-        elif line.startswith("SCORE:"):
-            current_section = "score"
-            current_content = []
-        elif line.startswith("SCORE_REASONING:"):
-            current_section = "score_reasoning"
-            current_content = []
-        elif current_section:
+        matched = False
+        for header, key in [
+            ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
+            ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
+            ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
+            ("SCORE:", "score"),
+        ]:
+            if line.startswith(header):
+                current_section = key
+                inline = line[len(header):].strip()
+                current_content = [inline] if inline else []
+                if current_content:
+                    sections[current_section] = "\n".join(current_content).strip()
+                matched = True
+                break
+        if not matched and current_section:
             current_content.append(line)
             sections[current_section] = "\n".join(current_content).strip()
 
@@ -299,19 +293,20 @@ Here are the files:
     current_content = []
 
     for line in response_text.split("\n"):
-        if line.startswith("SUMMARY:"):
-            current_section = "summary"
-            current_content = []
-        elif line.startswith("ARCHITECTURE:"):
-            current_section = "architecture"
-            current_content = []
-        elif line.startswith("TECH_STACK:"):
-            current_section = "tech_stack"
-            current_content = []
-        elif line.startswith("ENTRY_POINTS:"):
-            current_section = "entry_points"
-            current_content = []
-        elif current_section:
+        matched = False
+        for header, key in [
+            ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
+            ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
+        ]:
+            if line.startswith(header):
+                current_section = key
+                inline = line[len(header):].strip()
+                current_content = [inline] if inline else []
+                if current_content:
+                    sections[current_section] = "\n".join(current_content).strip()
+                matched = True
+                break
+        if not matched and current_section:
             current_content.append(line)
             sections[current_section] = "\n".join(current_content).strip()
 
