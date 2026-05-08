@@ -18,8 +18,20 @@ import hashlib
 load_dotenv()
 
 # ── GitHub token validation cache ─────────────────────────────────────────────
-_token_cache = {}  # token -> (is_valid, timestamp)
-TOKEN_CACHE_TTL = 300  # 5 minutes
+_token_cache = {}
+TOKEN_CACHE_TTL = 300
+
+_result_cache = {}
+RESULT_CACHE_TTL = 3600
+
+def _result_cache_get(key):
+    entry = _result_cache.get(key)
+    if entry and (time.time() - entry[1]) < RESULT_CACHE_TTL:
+        return entry[0]
+    return None
+
+def _result_cache_set(key, value):
+    _result_cache[key] = (value, time.time())
 
 def _validate_github_token(token):
     now = time.time()
@@ -104,12 +116,17 @@ def review_code():
     if err:
         return err
 
+    code_hash = hashlib.sha256(code.encode()).hexdigest()
+
+    cached = _result_cache_get(code_hash)
+    if cached:
+        return jsonify({**cached, "cached": True})
+
     db = next(get_db())
 
-    # Check cache first
     existing = db.query(Submission).filter(Submission.code == code).first()
     if existing and existing.score is not None:
-        return jsonify({
+        result = {
             "id": existing.id,
             "explanation": existing.explanation,
             "bugs": existing.bugs,
@@ -119,8 +136,9 @@ def review_code():
             "score": existing.score,
             "score_reasoning": existing.score_reasoning,
             "language": existing.language,
-            "cached": True
-        })
+        }
+        _result_cache_set(code_hash, result)
+        return jsonify({**result, "cached": True})
 
     submission = Submission(code=code, language=language)
     db.add(submission)
@@ -224,7 +242,7 @@ Here is the code to review:
     submission.score_reasoning = score_reasoning
     db.commit()
 
-    return jsonify({
+    result = {
         "id": submission.id,
         "explanation": explanation,
         "bugs": bugs,
@@ -233,8 +251,10 @@ Here is the code to review:
         "security": security,
         "score": score,
         "score_reasoning": score_reasoning,
-        "language": language
-    })
+        "language": language,
+    }
+    _result_cache_set(code_hash, result)
+    return jsonify(result)
 
 @app.route("/github/explain-repo", methods=["POST"])
 @require_github_auth
@@ -366,16 +386,22 @@ def explain_file():
         return jsonify({"error": "No content provided"}), 400
 
     content_hash = hashlib.sha256(content[:4000].encode()).hexdigest()
+
+    mem = _result_cache_get(content_hash)
+    if mem:
+        return jsonify({**mem, "cached": True})
+
     db = next(get_db())
     cached = db.query(FileAnalysis).filter(FileAnalysis.content_hash == content_hash).first()
     if cached:
-        return jsonify({
+        hit = {
             "summary": cached.summary,
             "tech": cached.tech,
             "concepts": cached.concepts,
             "purpose": cached.purpose,
-            "cached": True,
-        })
+        }
+        _result_cache_set(content_hash, hit)
+        return jsonify({**hit, "cached": True})
 
     message = client.messages.create(
         model="claude-opus-4-5",
@@ -449,6 +475,7 @@ Filename: {filename}
         **result,
     ))
     db.commit()
+    _result_cache_set(content_hash, result)
 
     return jsonify(result)
 
