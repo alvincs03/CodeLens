@@ -30,7 +30,7 @@ const Section = ({ title, color, children, defaultOpen = false }) => {
   };
 
   return (
-    <div className={`rounded-xl border ${borders[color]} bg-gray-900 overflow-hidden`}>
+    <section className={`analysis-section border ${borders[color]} overflow-hidden`}>
       <button
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-800 transition-colors duration-150"
@@ -43,7 +43,7 @@ const Section = ({ title, color, children, defaultOpen = false }) => {
           <div className="pt-4 text-gray-100 text-base leading-8 whitespace-pre-wrap">{children}</div>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 
@@ -323,7 +323,7 @@ useEffect(() => {
           ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
         },
         body: JSON.stringify({
-          content: fileContent.slice(0, 4000),
+          content: fileContent,
           filename: selectedFile.path,
         }),
       });
@@ -364,18 +364,23 @@ useEffect(() => {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="app-shell min-h-screen text-gray-100 flex flex-col">
+
+      <a href="#main-content" className="skip-link">Skip to workspace</a>
 
       {/* Top Bar */}
-      <div className="border-b border-gray-800 px-8 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">CodeLens</h1>
-          <p className="text-gray-500 text-xs mt-0.5">AI-powered code intelligence</p>
+      <header className="app-header px-8 py-4 flex items-center justify-between">
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">CL</span>
+          <div>
+            <h1 className="text-xl font-semibold text-white tracking-tight">CodeLens</h1>
+            <p className="brand-subtitle text-xs mt-0.5">Read the code. Know the tradeoffs.</p>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
           {/* Mode Toggle */}
-          <div className="flex bg-gray-900 border border-gray-700 rounded-lg p-1">
+          <div className="mode-switch flex p-1">
             <button
               onClick={() => setMode("snippet")}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -454,14 +459,20 @@ useEffect(() => {
             </a>
           )}
         </div>
-      </div>
+      </header>
+
+      <main id="main-content" className="flex flex-1 min-h-0">
 
       {/* ── SNIPPET MODE ── */}
       {mode === "snippet" && (!githubUser || !anthropicKey) && (
-        <div className="flex flex-1 items-center justify-center">
-          <div className="text-center flex flex-col items-center gap-6 max-w-sm">
+        <div className="onboarding-wrap flex flex-1 items-center justify-center">
+          <div className="onboarding-panel max-w-xl">
+            <p className="eyebrow">Workspace setup</p>
+            <h2>Two keys. No account to create.</h2>
+            <p className="onboarding-copy">Connect the repository you want to inspect, then add your own Anthropic key. Both stay in this browser session.</p>
+            <div className="onboarding-steps">
             <div className="flex flex-col items-center gap-2">
-              <span className={`text-2xl ${githubUser ? "opacity-30" : ""}`}>①</span>
+              <span className={`step-number ${githubUser ? "is-complete" : ""}`}>01</span>
               <p className={`text-sm font-semibold ${githubUser ? "text-gray-600 line-through" : "text-gray-200"}`}>Connect GitHub</p>
               {!githubUser && (
                 <a
@@ -473,7 +484,7 @@ useEffect(() => {
               )}
             </div>
             <div className="flex flex-col items-center gap-2">
-              <span className={`text-2xl ${anthropicKey ? "opacity-30" : ""}`}>②</span>
+              <span className={`step-number ${anthropicKey ? "is-complete" : ""}`}>02</span>
               <p className={`text-sm font-semibold ${anthropicKey ? "text-gray-600 line-through" : "text-gray-200"}`}>Add your Anthropic API key</p>
               {!anthropicKey && (
                 <button
@@ -484,17 +495,18 @@ useEffect(() => {
                 </button>
               )}
             </div>
+            </div>
           </div>
         </div>
       )}
 
       {mode === "snippet" && githubUser && anthropicKey && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="workspace-grid flex flex-1 overflow-hidden">
 
           {/* Left — Input */}
-          <div className="w-1/2 border-r border-gray-800 p-6 flex flex-col gap-4">
+          <section className="input-panel w-1/2 p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-widest text-gray-500">Input</span>
+              <span className="eyebrow">Review input</span>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
@@ -535,10 +547,10 @@ useEffect(() => {
                 <p className="text-red-400 text-sm">{error}</p>
               </div>
             )}
-          </div>
+          </section>
 
           {/* Right — Results */}
-          <div className="w-1/2 overflow-y-auto p-6 flex flex-col gap-4">
+          <section className="results-panel w-1/2 overflow-y-auto p-6 flex flex-col gap-4">
             {!result && !loading && (
               <div className="h-full flex items-center justify-center">
                 <p className="text-gray-700 text-sm">Paste your code on the left and hit Review</p>
@@ -596,16 +608,16 @@ useEffect(() => {
                 )}
               </>
             )}
-          </div>
+          </section>
         </div>
       )}
 
       {/* ── REPO MODE ── */}
       {mode === "repo" && (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="repo-workspace flex flex-1 overflow-hidden">
 
           {/* Left — Repo list OR file tree */}
-          <div className="w-64 border-r border-gray-800 flex flex-col overflow-hidden">
+          <aside className="repo-sidebar w-64 flex flex-col overflow-hidden">
 
             {!githubToken ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-4">
@@ -684,10 +696,10 @@ useEffect(() => {
                 </div>
               </>
             )}
-          </div>
+          </aside>
 
           {/* Middle — File content */}
-          <div className="flex-1 border-r border-gray-800 flex flex-col overflow-hidden">
+          <section className="file-viewer flex-1 flex flex-col overflow-hidden">
             {!selectedFile ? (
               readmeContent ? (
                 <>
@@ -745,10 +757,10 @@ useEffect(() => {
                 </pre>
               </>
             )}
-          </div>
+          </section>
 
           {/* Right — AI Analysis */}
-          <div className="w-96 overflow-y-auto p-5 flex flex-col gap-4">
+          <aside className="analysis-rail w-96 overflow-y-auto p-5 flex flex-col gap-4">
             {/* Repo summary (shown when no file selected) */}
             {!selectedFile && !summaryLoading && repoSummary && !repoSummary.error && (
               <>
@@ -812,6 +824,9 @@ useEffect(() => {
                   <Section title="Engineer's Perspective" color="yellow" defaultOpen={true}>
                     {normalizeAiText(repoResult.purpose)}
                   </Section>
+                  {repoResult.truncated && (
+                    <p className="text-amber-300/80 text-xs leading-5">Analysis used the first 4,000 characters. The cache key still represents the complete file.</p>
+                  )}
                 </>
               )
             )}
@@ -821,9 +836,10 @@ useEffect(() => {
                 <p className="text-gray-700 text-sm text-center">Press "Analyze →" to get a breakdown of this file</p>
               </div>
             )}
-          </div>
+          </aside>
         </div>
       )}
+      </main>
     </div>
   );
 }

@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from github_routes import github_bp
-from anthropic import Anthropic
+from github_routes import github_bp, get_bearer_token
+from anthropic import Anthropic, APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, RateLimitError
 from database import engine, get_db
 from models import Submission, FileAnalysis, Base
 from dotenv import load_dotenv
@@ -14,6 +14,7 @@ import re
 import os
 import time
 import hashlib
+import logging
 
 load_dotenv()
 
@@ -23,15 +24,52 @@ TOKEN_CACHE_TTL = 300
 
 _result_cache = {}
 RESULT_CACHE_TTL = 3600
+CACHE_MAX_ENTRIES = 500
+CACHE_KEY_VERSION = "v1"
+_cache_metrics = {"hits": 0, "misses": 0, "sets": 0, "evictions": 0}
+logger = logging.getLogger(__name__)
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+ANTHROPIC_TIMEOUT_SECONDS = float(os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "120"))
+ANTHROPIC_MAX_RETRIES = int(os.getenv("ANTHROPIC_MAX_RETRIES", "2"))
+SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "java", "cpp", "go", "rust"}
+MAX_CODE_CHARACTERS = 5000
+MAX_FILE_CHARACTERS = 100000
+
+def _make_cache_key(operation, *parts):
+    content = "\0".join([operation, CACHE_KEY_VERSION, *parts])
+    return hashlib.sha256(content.encode()).hexdigest()
+
+def _log_cache_metrics(event):
+    logger.info(
+        "cache_event=%s hits=%s misses=%s sets=%s evictions=%s entries=%s",
+        event,
+        _cache_metrics["hits"],
+        _cache_metrics["misses"],
+        _cache_metrics["sets"],
+        _cache_metrics["evictions"],
+        len(_result_cache),
+    )
 
 def _result_cache_get(key):
     entry = _result_cache.get(key)
     if entry and (time.time() - entry[1]) < RESULT_CACHE_TTL:
+        _cache_metrics["hits"] += 1
+        _log_cache_metrics("hit")
         return entry[0]
+    if entry:
+        del _result_cache[key]
+    _cache_metrics["misses"] += 1
+    _log_cache_metrics("miss")
     return None
 
 def _result_cache_set(key, value):
+    if key not in _result_cache and len(_result_cache) >= CACHE_MAX_ENTRIES:
+        oldest_key = min(_result_cache, key=lambda cache_key: _result_cache[cache_key][1])
+        del _result_cache[oldest_key]
+        _cache_metrics["evictions"] += 1
     _result_cache[key] = (value, time.time())
+    _cache_metrics["sets"] += 1
+    _log_cache_metrics("set")
 
 def _validate_github_token(token):
     now = time.time()
@@ -51,7 +89,7 @@ def _validate_github_token(token):
 def require_github_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+        token = get_bearer_token()
         if not token or not _validate_github_token(token):
             return jsonify({"error": "GitHub authentication required. Please sign in with GitHub."}), 401
         return f(*args, **kwargs)
@@ -78,16 +116,42 @@ def get_anthropic_client():
     if not user_key:
         return None, (jsonify({"error": "No Anthropic API key provided. Add your key in the settings panel."}), 402)
     try:
-        return Anthropic(api_key=user_key), None
+        return Anthropic(
+            api_key=user_key,
+            timeout=ANTHROPIC_TIMEOUT_SECONDS,
+            max_retries=ANTHROPIC_MAX_RETRIES,
+        ), None
     except Exception:
         return None, (jsonify({"error": "Invalid Anthropic API key."}), 402)
 
+@app.errorhandler(AuthenticationError)
+def handle_anthropic_authentication_error(error):
+    logger.warning("anthropic_authentication_failed error_type=%s", type(error).__name__)
+    return jsonify({"error": "Invalid or revoked Anthropic API key. Please enter a valid key."}), 401
+
+@app.errorhandler(RateLimitError)
+def handle_anthropic_rate_limit(error):
+    logger.warning("anthropic_rate_limited error_type=%s", type(error).__name__)
+    return jsonify({"error": "Anthropic is rate limiting this key. Please retry shortly."}), 429
+
+@app.errorhandler(APITimeoutError)
+def handle_anthropic_timeout(error):
+    logger.warning("anthropic_timeout error_type=%s", type(error).__name__)
+    return jsonify({"error": "Anthropic did not respond before the timeout."}), 504
+
+@app.errorhandler(APIConnectionError)
+def handle_anthropic_connection_error(error):
+    logger.warning("anthropic_connection_failed error_type=%s", type(error).__name__)
+    return jsonify({"error": "Could not connect to Anthropic."}), 502
+
+@app.errorhandler(APIStatusError)
+def handle_anthropic_status_error(error):
+    logger.warning("anthropic_request_failed status=%s", error.status_code)
+    return jsonify({"error": "Anthropic could not complete the review."}), 502
+
 @app.errorhandler(Exception)
-def handle_exception(e):
-    # Check if it looks like an Anthropic auth error
-    msg = str(e)
-    if "401" in msg or "auth" in msg.lower() or "api_key" in msg.lower() or "authentication" in msg.lower():
-        return jsonify({"error": "Invalid or revoked Anthropic API key. Please enter a valid key."}), 402
+def handle_exception(error):
+    logger.exception("unhandled_server_error error_type=%s", type(error).__name__)
     return jsonify({"error": "An unexpected error occurred on the server."}), 500
 
 def sanitize_ai_section(text):
@@ -98,25 +162,56 @@ def sanitize_ai_section(text):
     cleaned = re.sub(r"\n{2,}", "\n\n", cleaned)
     return cleaned.strip()
 
+def parse_ai_sections(response_text, headers):
+    sections = {}
+    current_section = None
+    current_content = []
+
+    for line in response_text.splitlines():
+        normalized_line = re.sub(r'^[\s*#_`]+', '', line).strip()
+        matched_header = False
+
+        for header, key in headers:
+            if normalized_line.upper().startswith(header):
+                current_section = key
+                inline_content = normalized_line[len(header):].strip()
+                inline_content = re.sub(r'^[\s*#_`]+', '', inline_content).strip()
+                current_content = [inline_content] if inline_content else []
+                sections[current_section] = "\n".join(current_content).strip()
+                matched_header = True
+                break
+
+        if not matched_header and current_section:
+            current_content.append(line)
+            sections[current_section] = "\n".join(current_content).strip()
+
+    return {key: sanitize_ai_section(value) for key, value in sections.items()}
+
 @app.route("/review", methods=["POST"])
 @limiter.limit("10 per hour")
 @require_github_auth
 def review_code():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     code = data.get("code")
     language = data.get("language", "unknown")
 
-    if not code:
+    if not isinstance(code, str) or not code.strip():
         return jsonify({"error": "No code provided"}), 400
 
-    if len(code) > 5000:
-        return jsonify({"error": "Code exceeds 5000 character limit."}), 400
+    if len(code) > MAX_CODE_CHARACTERS:
+        return jsonify({"error": f"Code exceeds {MAX_CODE_CHARACTERS} character limit."}), 400
+
+    if language not in SUPPORTED_LANGUAGES:
+        return jsonify({"error": "Unsupported programming language."}), 400
 
     client, err = get_anthropic_client()
     if err:
         return err
 
-    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    code_hash = _make_cache_key("review", language, code)
 
     cached = _result_cache_get(code_hash)
     if cached:
@@ -146,7 +241,7 @@ def review_code():
     db.refresh(submission)
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=4096,
         system="""You are a senior software engineer with 15+ years of experience across systems design,
 security, performance optimization, and clean code principles. You have conducted thousands of code reviews
@@ -198,40 +293,22 @@ Here is the code to review:
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
+    sections = parse_ai_sections(response_text, [
+        ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
+        ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
+        ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
+        ("SCORE:", "score"),
+    ])
 
-    for line in response_text.split("\n"):
-        matched = False
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
-            ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
-            ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
-            ("SCORE:", "score"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
-
-    explanation = sanitize_ai_section(sections.get("explanation", ""))
-    bugs = sanitize_ai_section(sections.get("bugs", ""))
-    suggestions = sanitize_ai_section(sections.get("suggestions", ""))
-    complexity = sanitize_ai_section(sections.get("complexity", ""))
-    security = sanitize_ai_section(sections.get("security", ""))
-    score_text = sanitize_ai_section(sections.get("score", "0"))
-    score_reasoning = sanitize_ai_section(sections.get("score_reasoning", ""))
+    explanation = sections.get("explanation", "")
+    bugs = sections.get("bugs", "")
+    suggestions = sections.get("suggestions", "")
+    complexity = sections.get("complexity", "")
+    security = sections.get("security", "")
+    score_text = sections.get("score", "0")
+    score_reasoning = sections.get("score_reasoning", "")
     score_match = re.search(r'\b(\d{1,3})\b', score_text)
-    score = int(score_match.group(1)) if score_match else 0
+    score = min(100, int(score_match.group(1))) if score_match else 0
 
     submission.explanation = explanation
     submission.bugs = bugs
@@ -259,21 +336,30 @@ Here is the code to review:
 @app.route("/github/explain-repo", methods=["POST"])
 @require_github_auth
 def explain_repo():
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    token = get_bearer_token()
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     owner = data.get("owner")
     repo = data.get("repo")
-    if not owner or not repo:
+    if not isinstance(owner, str) or not isinstance(repo, str) or not owner.strip() or not repo.strip():
         return jsonify({"error": "owner and repo are required"}), 400
+
+    if len(owner) > 100 or len(repo) > 100:
+        return jsonify({"error": "owner and repo must be 100 characters or fewer"}), 400
 
     SKIP_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__", ".next", "vendor"}
     SOURCE_EXTS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp", ".c", ".rb"}
 
     tree_response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}/git/trees/HEAD?recursive=1",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        timeout=10,
     )
+    if not tree_response.ok:
+        return jsonify({"error": "GitHub could not load the repository tree"}), tree_response.status_code
     tree_data = tree_response.json()
     tree = tree_data.get("tree", [])
 
@@ -291,8 +377,11 @@ def explain_repo():
     for f in candidate_files:
         file_res = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/contents/{f['path']}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
         )
+        if not file_res.ok:
+            continue
         fdata = file_res.json()
         if "content" in fdata:
             content = base64.b64decode(fdata["content"]).decode("utf-8", errors="replace")
@@ -308,7 +397,7 @@ def explain_repo():
         return err
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -340,34 +429,16 @@ Here are the source files:
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
-
-    for line in response_text.split("\n"):
-        matched = False
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
-            ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
+    sections = parse_ai_sections(response_text, [
+        ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
+        ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
+    ])
 
     return jsonify({
-        "summary": sanitize_ai_section(sections.get("summary", "")),
-        "architecture": sanitize_ai_section(sections.get("architecture", "")),
-        "tech_stack": sanitize_ai_section(sections.get("tech_stack", "")),
-        "entry_points": sanitize_ai_section(sections.get("entry_points", "")),
+        "summary": sections.get("summary", ""),
+        "architecture": sections.get("architecture", ""),
+        "tech_stack": sections.get("tech_stack", ""),
+        "entry_points": sections.get("entry_points", ""),
     })
 
 
@@ -378,14 +449,24 @@ def explain_file():
     if err:
         return err
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     content = data.get("content", "")
     filename = data.get("filename", "unknown")
 
-    if not content:
+    if not isinstance(content, str) or not content:
         return jsonify({"error": "No content provided"}), 400
 
-    content_hash = hashlib.sha256(content[:4000].encode()).hexdigest()
+    if len(content) > MAX_FILE_CHARACTERS:
+        return jsonify({"error": f"File exceeds {MAX_FILE_CHARACTERS} character limit."}), 400
+
+    if not isinstance(filename, str) or not filename or len(filename) > 500:
+        return jsonify({"error": "Filename must be between 1 and 500 characters."}), 400
+
+    content_hash = _make_cache_key("file-analysis", filename, content)
+    content_was_truncated = len(content) > 4000
 
     mem = _result_cache_get(content_hash)
     if mem:
@@ -399,12 +480,13 @@ def explain_file():
             "tech": cached.tech,
             "concepts": cached.concepts,
             "purpose": cached.purpose,
+            "truncated": content_was_truncated,
         }
         _result_cache_set(content_hash, hit)
         return jsonify({**hit, "cached": True})
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -438,41 +520,26 @@ Filename: {filename}
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
-
-    for line in response_text.split("\n"):
-        matched = False
-        # Strip leading markdown (**, ##, __, spaces) before header matching
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("SUMMARY:", "summary"), ("TECH:", "tech"),
-            ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
+    sections = parse_ai_sections(response_text, [
+        ("SUMMARY:", "summary"), ("TECH:", "tech"),
+        ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
+    ])
 
     result = {
-        "summary": sanitize_ai_section(sections.get("summary", "")),
-        "tech": sanitize_ai_section(sections.get("tech", "")),
-        "concepts": sanitize_ai_section(sections.get("concepts", "")),
-        "purpose": sanitize_ai_section(sections.get("purpose", "")),
+        "summary": sections.get("summary", ""),
+        "tech": sections.get("tech", ""),
+        "concepts": sections.get("concepts", ""),
+        "purpose": sections.get("purpose", ""),
+        "truncated": content_was_truncated,
     }
 
     db.add(FileAnalysis(
         content_hash=content_hash,
         filename=filename,
-        **result,
+        summary=result["summary"],
+        tech=result["tech"],
+        concepts=result["concepts"],
+        purpose=result["purpose"],
     ))
     db.commit()
     _result_cache_set(content_hash, result)
