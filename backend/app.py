@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
 ANTHROPIC_TIMEOUT_SECONDS = float(os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "120"))
 ANTHROPIC_MAX_RETRIES = int(os.getenv("ANTHROPIC_MAX_RETRIES", "2"))
+SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "java", "cpp", "go", "rust"}
+MAX_CODE_CHARACTERS = 5000
+MAX_FILE_CHARACTERS = 100000
 
 def _make_cache_key(operation, *parts):
     content = "\0".join([operation, CACHE_KEY_VERSION, *parts])
@@ -163,15 +166,21 @@ def sanitize_ai_section(text):
 @limiter.limit("10 per hour")
 @require_github_auth
 def review_code():
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     code = data.get("code")
     language = data.get("language", "unknown")
 
-    if not code:
+    if not isinstance(code, str) or not code.strip():
         return jsonify({"error": "No code provided"}), 400
 
-    if len(code) > 5000:
-        return jsonify({"error": "Code exceeds 5000 character limit."}), 400
+    if len(code) > MAX_CODE_CHARACTERS:
+        return jsonify({"error": f"Code exceeds {MAX_CODE_CHARACTERS} character limit."}), 400
+
+    if language not in SUPPORTED_LANGUAGES:
+        return jsonify({"error": "Unsupported programming language."}), 400
 
     client, err = get_anthropic_client()
     if err:
@@ -322,11 +331,17 @@ Here is the code to review:
 def explain_repo():
     token = get_bearer_token()
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     owner = data.get("owner")
     repo = data.get("repo")
-    if not owner or not repo:
+    if not isinstance(owner, str) or not isinstance(repo, str) or not owner.strip() or not repo.strip():
         return jsonify({"error": "owner and repo are required"}), 400
+
+    if len(owner) > 100 or len(repo) > 100:
+        return jsonify({"error": "owner and repo must be 100 characters or fewer"}), 400
 
     SKIP_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__", ".next", "vendor"}
     SOURCE_EXTS = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp", ".c", ".rb"}
@@ -336,6 +351,8 @@ def explain_repo():
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         timeout=10,
     )
+    if not tree_response.ok:
+        return jsonify({"error": "GitHub could not load the repository tree"}), tree_response.status_code
     tree_data = tree_response.json()
     tree = tree_data.get("tree", [])
 
@@ -356,6 +373,8 @@ def explain_repo():
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
             timeout=10,
         )
+        if not file_res.ok:
+            continue
         fdata = file_res.json()
         if "content" in fdata:
             content = base64.b64decode(fdata["content"]).decode("utf-8", errors="replace")
@@ -441,12 +460,21 @@ def explain_file():
     if err:
         return err
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object."}), 400
+
     content = data.get("content", "")
     filename = data.get("filename", "unknown")
 
-    if not content:
+    if not isinstance(content, str) or not content:
         return jsonify({"error": "No content provided"}), 400
+
+    if len(content) > MAX_FILE_CHARACTERS:
+        return jsonify({"error": f"File exceeds {MAX_FILE_CHARACTERS} character limit."}), 400
+
+    if not isinstance(filename, str) or not filename or len(filename) > 500:
+        return jsonify({"error": "Filename must be between 1 and 500 characters."}), 400
 
     content_hash = _make_cache_key("file-analysis", filename, content)
     content_was_truncated = len(content) > 4000

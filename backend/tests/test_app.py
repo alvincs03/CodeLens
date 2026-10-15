@@ -75,3 +75,45 @@ def test_anthropic_client_uses_explicit_resilience_settings(monkeypatch):
         "max_retries": app.ANTHROPIC_MAX_RETRIES,
     }
 
+
+def test_review_rejects_non_json_body(monkeypatch):
+    monkeypatch.setattr(app, "_validate_github_token", lambda token: True)
+    client = app.app.test_client()
+
+    response = client.post(
+        "/review",
+        data="not-json",
+        headers={"Authorization": "Bearer test-token", "Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Request body must be a JSON object."}
+
+
+def test_review_rejects_unsupported_language(monkeypatch):
+    monkeypatch.setattr(app, "_validate_github_token", lambda token: True)
+    client = app.app.test_client()
+
+    response = client.post(
+        "/review",
+        json={"code": "print('hello')", "language": "brainfuck"},
+        headers={"Authorization": "Bearer test-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Unsupported programming language."}
+
+
+def test_explain_file_rejects_oversized_content(monkeypatch):
+    monkeypatch.setattr(app, "_validate_github_token", lambda token: True)
+    client = app.app.test_client()
+
+    response = client.post(
+        "/github/explain-file",
+        json={"content": "x" * (app.MAX_FILE_CHARACTERS + 1), "filename": "large.py"},
+        headers={"Authorization": "Bearer test-token", "X-Api-Key": "test-key"},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": f"File exceeds {app.MAX_FILE_CHARACTERS} character limit."}
+
