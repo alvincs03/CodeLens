@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders Code Review Buddy title', () => {
+test('renders the CodeLens title', () => {
   render(<App />);
-  const titleElement = screen.getByText(/Code Review Buddy/i);
+  const titleElement = screen.getByRole('heading', { name: /CodeLens/i });
   expect(titleElement).toBeInTheDocument();
 });
