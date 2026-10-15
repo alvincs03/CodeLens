@@ -6,3 +6,8 @@ __pycache__/
 .env
 node_modules/
 frontend/build/
+CLAUDE.md
+IMPROVEMENT_PLAN.md
+CHANGELOG_INTERVIEW.md
+PROJECT_BREAKDOWN.md
+INTERVIEW_QUESTIONS.md
