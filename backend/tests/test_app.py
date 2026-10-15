@@ -193,3 +193,12 @@ The snippet is simple and correct."""
     assert response.get_json()["score"] == 90
     assert response.get_json()["id"] is None
 
+
+def test_database_initialization_failure_does_not_stop_app(monkeypatch):
+    def fail_create_all(bind):
+        raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(app.Base.metadata, "create_all", fail_create_all)
+
+    assert app.initialize_database() is False
+

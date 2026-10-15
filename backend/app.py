@@ -110,7 +110,16 @@ limiter = Limiter(
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
 app.register_blueprint(github_bp)
-Base.metadata.create_all(bind=engine)
+
+def initialize_database():
+    try:
+        Base.metadata.create_all(bind=engine)
+        return True
+    except SQLAlchemyError as error:
+        logger.warning("database_initialization_failed error_type=%s", type(error).__name__)
+        return False
+
+initialize_database()
 
 def get_anthropic_client():
     user_key = request.headers.get("X-Api-Key", "").strip()
