@@ -1,4 +1,5 @@
 import app
+from sqlalchemy.exc import SQLAlchemyError
 
 
 def setup_function():
@@ -141,4 +142,54 @@ def test_explain_file_rejects_oversized_content(monkeypatch):
 
     assert response.status_code == 400
     assert response.get_json() == {"error": f"File exceeds {app.MAX_FILE_CHARACTERS} character limit."}
+
+
+def test_review_succeeds_when_submission_cache_is_unavailable(monkeypatch):
+    class BrokenDatabase:
+        def query(self, model):
+            raise SQLAlchemyError("database unavailable")
+
+        def add(self, submission):
+            raise SQLAlchemyError("database unavailable")
+
+        def rollback(self):
+            return None
+
+    class FakeMessages:
+        def create(self, **arguments):
+            content = """EXPLANATION:
+Prints a value.
+BUGS:
+None found.
+SUGGESTIONS:
+None.
+COMPLEXITY:
+O(1).
+SECURITY:
+No security issues found.
+SCORE:
+90
+SCORE_REASONING:
+The snippet is simple and correct."""
+            return type("Message", (), {"content": [type("Block", (), {"text": content})()]})()
+
+    fake_client = type("Client", (), {"messages": FakeMessages()})()
+
+    def fake_get_db():
+        yield BrokenDatabase()
+
+    monkeypatch.setattr(app, "_validate_github_token", lambda token: True)
+    monkeypatch.setattr(app, "get_anthropic_client", lambda: (fake_client, None))
+    monkeypatch.setattr(app, "get_db", fake_get_db)
+    client = app.app.test_client()
+
+    response = client.post(
+        "/review",
+        json={"code": "print(1)", "language": "python"},
+        headers={"Authorization": "Bearer test-token", "X-Api-Key": "test-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["score"] == 90
+    assert response.get_json()["id"] is None
 

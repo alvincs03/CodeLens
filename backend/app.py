@@ -6,6 +6,7 @@ from github_routes import github_bp, get_bearer_token
 from anthropic import Anthropic, APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, RateLimitError
 from database import engine, get_db
 from models import Submission, FileAnalysis, Base
+from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 from functools import wraps
 import requests
@@ -187,6 +188,29 @@ def parse_ai_sections(response_text, headers):
 
     return {key: sanitize_ai_section(value) for key, value in sections.items()}
 
+def _find_cached_submission(db, code, language):
+    try:
+        return db.query(Submission).filter(
+            Submission.code == code,
+            Submission.language == language,
+            Submission.score.is_not(None),
+        ).first()
+    except SQLAlchemyError as error:
+        db.rollback()
+        logger.warning("submission_cache_read_failed error_type=%s", type(error).__name__)
+        return None
+
+def _save_submission(db, submission):
+    try:
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+        return submission.id
+    except SQLAlchemyError as error:
+        db.rollback()
+        logger.warning("submission_cache_write_failed error_type=%s", type(error).__name__)
+        return None
+
 @app.route("/review", methods=["POST"])
 @limiter.limit("10 per hour")
 @require_github_auth
@@ -219,8 +243,8 @@ def review_code():
 
     db = next(get_db())
 
-    existing = db.query(Submission).filter(Submission.code == code).first()
-    if existing and existing.score is not None:
+    existing = _find_cached_submission(db, code, language)
+    if existing:
         result = {
             "id": existing.id,
             "explanation": existing.explanation,
@@ -234,11 +258,6 @@ def review_code():
         }
         _result_cache_set(code_hash, result)
         return jsonify({**result, "cached": True})
-
-    submission = Submission(code=code, language=language)
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
 
     message = client.messages.create(
         model=ANTHROPIC_MODEL,
@@ -310,17 +329,21 @@ Here is the code to review:
     score_match = re.search(r'\b(\d{1,3})\b', score_text)
     score = min(100, int(score_match.group(1))) if score_match else 0
 
-    submission.explanation = explanation
-    submission.bugs = bugs
-    submission.suggestions = suggestions
-    submission.complexity = complexity
-    submission.security = security
-    submission.score = score
-    submission.score_reasoning = score_reasoning
-    db.commit()
+    submission = Submission(
+        code=code,
+        language=language,
+        explanation=explanation,
+        bugs=bugs,
+        suggestions=suggestions,
+        complexity=complexity,
+        security=security,
+        score=score,
+        score_reasoning=score_reasoning,
+    )
+    submission_id = _save_submission(db, submission)
 
     result = {
-        "id": submission.id,
+        "id": submission_id,
         "explanation": explanation,
         "bugs": bugs,
         "suggestions": suggestions,
