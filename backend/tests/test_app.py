@@ -55,3 +55,23 @@ def test_sanitize_ai_section_removes_self_talk():
 
     assert app.sanitize_ai_section(text) == "Useful result\n\nFinal detail"
 
+
+def test_anthropic_client_uses_explicit_resilience_settings(monkeypatch):
+    captured_arguments = {}
+
+    def fake_anthropic(**arguments):
+        captured_arguments.update(arguments)
+        return object()
+
+    monkeypatch.setattr(app, "Anthropic", fake_anthropic)
+    with app.app.test_request_context(headers={"X-Api-Key": "test-key"}):
+        client, error = app.get_anthropic_client()
+
+    assert client is not None
+    assert error is None
+    assert captured_arguments == {
+        "api_key": "test-key",
+        "timeout": app.ANTHROPIC_TIMEOUT_SECONDS,
+        "max_retries": app.ANTHROPIC_MAX_RETRIES,
+    }
+

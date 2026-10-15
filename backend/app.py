@@ -3,7 +3,7 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from github_routes import github_bp, get_bearer_token
-from anthropic import Anthropic
+from anthropic import Anthropic, APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, RateLimitError
 from database import engine, get_db
 from models import Submission, FileAnalysis, Base
 from dotenv import load_dotenv
@@ -28,6 +28,9 @@ CACHE_MAX_ENTRIES = 500
 CACHE_KEY_VERSION = "v1"
 _cache_metrics = {"hits": 0, "misses": 0, "sets": 0, "evictions": 0}
 logger = logging.getLogger(__name__)
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+ANTHROPIC_TIMEOUT_SECONDS = float(os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "120"))
+ANTHROPIC_MAX_RETRIES = int(os.getenv("ANTHROPIC_MAX_RETRIES", "2"))
 
 def _make_cache_key(operation, *parts):
     content = "\0".join([operation, CACHE_KEY_VERSION, *parts])
@@ -110,16 +113,42 @@ def get_anthropic_client():
     if not user_key:
         return None, (jsonify({"error": "No Anthropic API key provided. Add your key in the settings panel."}), 402)
     try:
-        return Anthropic(api_key=user_key), None
+        return Anthropic(
+            api_key=user_key,
+            timeout=ANTHROPIC_TIMEOUT_SECONDS,
+            max_retries=ANTHROPIC_MAX_RETRIES,
+        ), None
     except Exception:
         return None, (jsonify({"error": "Invalid Anthropic API key."}), 402)
 
+@app.errorhandler(AuthenticationError)
+def handle_anthropic_authentication_error(error):
+    logger.warning("anthropic_authentication_failed error_type=%s", type(error).__name__)
+    return jsonify({"error": "Invalid or revoked Anthropic API key. Please enter a valid key."}), 401
+
+@app.errorhandler(RateLimitError)
+def handle_anthropic_rate_limit(error):
+    logger.warning("anthropic_rate_limited error_type=%s", type(error).__name__)
+    return jsonify({"error": "Anthropic is rate limiting this key. Please retry shortly."}), 429
+
+@app.errorhandler(APITimeoutError)
+def handle_anthropic_timeout(error):
+    logger.warning("anthropic_timeout error_type=%s", type(error).__name__)
+    return jsonify({"error": "Anthropic did not respond before the timeout."}), 504
+
+@app.errorhandler(APIConnectionError)
+def handle_anthropic_connection_error(error):
+    logger.warning("anthropic_connection_failed error_type=%s", type(error).__name__)
+    return jsonify({"error": "Could not connect to Anthropic."}), 502
+
+@app.errorhandler(APIStatusError)
+def handle_anthropic_status_error(error):
+    logger.warning("anthropic_request_failed status=%s", error.status_code)
+    return jsonify({"error": "Anthropic could not complete the review."}), 502
+
 @app.errorhandler(Exception)
-def handle_exception(e):
-    # Check if it looks like an Anthropic auth error
-    msg = str(e)
-    if "401" in msg or "auth" in msg.lower() or "api_key" in msg.lower() or "authentication" in msg.lower():
-        return jsonify({"error": "Invalid or revoked Anthropic API key. Please enter a valid key."}), 402
+def handle_exception(error):
+    logger.exception("unhandled_server_error error_type=%s", type(error).__name__)
     return jsonify({"error": "An unexpected error occurred on the server."}), 500
 
 def sanitize_ai_section(text):
@@ -178,7 +207,7 @@ def review_code():
     db.refresh(submission)
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=4096,
         system="""You are a senior software engineer with 15+ years of experience across systems design,
 security, performance optimization, and clean code principles. You have conducted thousands of code reviews
@@ -342,7 +371,7 @@ def explain_repo():
         return err
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=2048,
         messages=[{
             "role": "user",
@@ -440,7 +469,7 @@ def explain_file():
         return jsonify({**hit, "cached": True})
 
     message = client.messages.create(
-        model="claude-opus-4-5",
+        model=ANTHROPIC_MODEL,
         max_tokens=2048,
         messages=[{
             "role": "user",
