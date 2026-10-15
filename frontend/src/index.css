@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   background: #12110f;
   font-synthesis: none;
 }
@@ -111,11 +111,18 @@ a:active {
   color: #17130f;
   background: #d29a62;
   border-radius: 0.45rem;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: -0.04em;
   box-shadow: 0 8px 24px rgba(95, 57, 27, 0.28);
+}
+
+.brand-lockup h1 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
 }
 
 .brand-subtitle {
@@ -151,7 +158,7 @@ a:active {
 
 .eyebrow {
   color: #a39a8f;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -162,10 +169,11 @@ a:active {
   max-width: 12ch;
   margin: 0.8rem 0 1rem;
   color: #f2ede5;
+  font-family: "Newsreader", Georgia, serif;
   font-size: clamp(2.15rem, 5vw, 3.7rem);
   font-weight: 600;
-  letter-spacing: -0.055em;
-  line-height: 0.98;
+  letter-spacing: -0.045em;
+  line-height: 0.94;
   text-wrap: balance;
 }
 
@@ -196,7 +204,7 @@ a:active {
 
 .step-number {
   color: #d29a62;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: "IBM Plex Mono", Consolas, monospace;
   font-size: 0.75rem;
 }
 
