@@ -91,6 +91,7 @@ a:active {
 }
 
 .app-header {
+  z-index: 20;
   min-height: 4.75rem;
   border-bottom: 1px solid rgba(221, 211, 198, 0.12);
   background: rgba(18, 17, 15, 0.86);

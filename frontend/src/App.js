@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -151,6 +151,7 @@ function App() {
   const [anthropicKey, setAnthropicKey] = useState("");
   const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
+  const keyPanelRef = useRef(null);
 
   const saveKey = () => {
     const trimmed = keyDraft.trim();
@@ -162,6 +163,25 @@ function App() {
   const removeKey = () => {
     setAnthropicKey("");
   };
+
+  useEffect(() => {
+    if (!showKeyPanel) return undefined;
+
+    const closeKeyPanel = (event) => {
+      if (event.key === "Escape" || !keyPanelRef.current?.contains(event.target)) {
+        setShowKeyPanel(false);
+        setKeyDraft("");
+      }
+    };
+
+    document.addEventListener("mousedown", closeKeyPanel);
+    document.addEventListener("keydown", closeKeyPanel);
+
+    return () => {
+      document.removeEventListener("mousedown", closeKeyPanel);
+      document.removeEventListener("keydown", closeKeyPanel);
+    };
+  }, [showKeyPanel]);
 
   // Snippet mode state
   const [code, setCode] = useState("");
@@ -400,7 +420,7 @@ useEffect(() => {
           </div>
 
           {/* Anthropic API Key */}
-          <div className="relative">
+          {githubUser && <div ref={keyPanelRef} className="relative">
             <button
               onClick={() => { setShowKeyPanel((p) => !p); setKeyDraft(anthropicKey); }}
               className={`flex items-center gap-2 border text-sm font-medium px-3 py-2 rounded-lg transition-colors ${
@@ -412,7 +432,7 @@ useEffect(() => {
               {anthropicKey ? "API Key ✓" : "Add API Key"}
             </button>
 
-            {showKeyPanel && (
+            {showKeyPanel && githubUser && (
               <div className="absolute right-0 top-full mt-2 w-80 bg-gray-900 border border-gray-700 rounded-xl p-4 z-50 shadow-2xl">
                 <p className="text-xs text-gray-400 mb-1 font-semibold">Anthropic API Key</p>
                 <p className="text-xs text-gray-600 mb-3">Stored in your browser only. Never sent to our server except to call Claude.</p>
@@ -436,7 +456,7 @@ useEffect(() => {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* GitHub Auth */}
           {githubUser ? (
@@ -444,7 +464,7 @@ useEffect(() => {
               <img src={githubUser.avatar_url} alt="avatar" className="w-7 h-7 rounded-full" />
               <span className="text-gray-300 text-sm">{githubUser.login}</span>
               <button
-                onClick={() => { setGithubToken(null); setGithubUser(null); setRepos([]); }}
+                onClick={() => { setGithubToken(null); setGithubUser(null); setRepos([]); setShowKeyPanel(false); setKeyDraft(""); }}
                 className="text-gray-600 hover:text-gray-400 text-xs ml-1"
               >
                 Sign out
@@ -486,13 +506,16 @@ useEffect(() => {
             <div className="flex flex-col items-center gap-2">
               <span className={`step-number ${anthropicKey ? "is-complete" : ""}`}>02</span>
               <p className={`text-sm font-semibold ${anthropicKey ? "text-gray-600 line-through" : "text-gray-200"}`}>Add your Anthropic API key</p>
-              {!anthropicKey && (
+              {githubUser && !anthropicKey && (
                 <button
                   onClick={() => setShowKeyPanel(true)}
                   className="mt-1 bg-yellow-900/40 hover:bg-yellow-900/60 border border-yellow-700 text-yellow-300 text-sm font-medium px-5 py-2 rounded-lg transition-colors"
                 >
                   Add API Key
                 </button>
+              )}
+              {!githubUser && (
+                <p className="mt-1 text-xs text-gray-600">Available after GitHub is connected</p>
               )}
             </div>
             </div>
