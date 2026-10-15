@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from github_routes import github_bp
+from github_routes import github_bp, get_bearer_token
 from anthropic import Anthropic
 from database import engine, get_db
 from models import Submission, FileAnalysis, Base
@@ -51,7 +51,7 @@ def _validate_github_token(token):
 def require_github_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+        token = get_bearer_token()
         if not token or not _validate_github_token(token):
             return jsonify({"error": "GitHub authentication required. Please sign in with GitHub."}), 401
         return f(*args, **kwargs)
@@ -259,7 +259,7 @@ Here is the code to review:
 @app.route("/github/explain-repo", methods=["POST"])
 @require_github_auth
 def explain_repo():
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    token = get_bearer_token()
 
     data = request.get_json()
     owner = data.get("owner")
@@ -272,7 +272,8 @@ def explain_repo():
 
     tree_response = requests.get(
         f"https://api.github.com/repos/{owner}/{repo}/git/trees/HEAD?recursive=1",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        timeout=10,
     )
     tree_data = tree_response.json()
     tree = tree_data.get("tree", [])
@@ -291,7 +292,8 @@ def explain_repo():
     for f in candidate_files:
         file_res = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/contents/{f['path']}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            timeout=10,
         )
         fdata = file_res.json()
         if "content" in fdata:
