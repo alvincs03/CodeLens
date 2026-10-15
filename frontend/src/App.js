@@ -323,7 +323,7 @@ useEffect(() => {
           ...(anthropicKey ? { "X-Api-Key": anthropicKey } : {}),
         },
         body: JSON.stringify({
-          content: fileContent.slice(0, 4000),
+          content: fileContent,
           filename: selectedFile.path,
         }),
       });
@@ -824,6 +824,9 @@ useEffect(() => {
                   <Section title="Engineer's Perspective" color="yellow" defaultOpen={true}>
                     {normalizeAiText(repoResult.purpose)}
                   </Section>
+                  {repoResult.truncated && (
+                    <p className="text-amber-300/80 text-xs leading-5">Analysis used the first 4,000 characters. The cache key still represents the complete file.</p>
+                  )}
                 </>
               )
             )}

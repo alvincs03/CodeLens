@@ -14,6 +14,7 @@ import re
 import os
 import time
 import hashlib
+import logging
 
 load_dotenv()
 
@@ -23,15 +24,46 @@ TOKEN_CACHE_TTL = 300
 
 _result_cache = {}
 RESULT_CACHE_TTL = 3600
+CACHE_MAX_ENTRIES = 500
+CACHE_KEY_VERSION = "v1"
+_cache_metrics = {"hits": 0, "misses": 0, "sets": 0, "evictions": 0}
+logger = logging.getLogger(__name__)
+
+def _make_cache_key(operation, *parts):
+    content = "\0".join([operation, CACHE_KEY_VERSION, *parts])
+    return hashlib.sha256(content.encode()).hexdigest()
+
+def _log_cache_metrics(event):
+    logger.info(
+        "cache_event=%s hits=%s misses=%s sets=%s evictions=%s entries=%s",
+        event,
+        _cache_metrics["hits"],
+        _cache_metrics["misses"],
+        _cache_metrics["sets"],
+        _cache_metrics["evictions"],
+        len(_result_cache),
+    )
 
 def _result_cache_get(key):
     entry = _result_cache.get(key)
     if entry and (time.time() - entry[1]) < RESULT_CACHE_TTL:
+        _cache_metrics["hits"] += 1
+        _log_cache_metrics("hit")
         return entry[0]
+    if entry:
+        del _result_cache[key]
+    _cache_metrics["misses"] += 1
+    _log_cache_metrics("miss")
     return None
 
 def _result_cache_set(key, value):
+    if key not in _result_cache and len(_result_cache) >= CACHE_MAX_ENTRIES:
+        oldest_key = min(_result_cache, key=lambda cache_key: _result_cache[cache_key][1])
+        del _result_cache[oldest_key]
+        _cache_metrics["evictions"] += 1
     _result_cache[key] = (value, time.time())
+    _cache_metrics["sets"] += 1
+    _log_cache_metrics("set")
 
 def _validate_github_token(token):
     now = time.time()
@@ -116,7 +148,7 @@ def review_code():
     if err:
         return err
 
-    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    code_hash = _make_cache_key("review", language, code)
 
     cached = _result_cache_get(code_hash)
     if cached:
@@ -387,7 +419,8 @@ def explain_file():
     if not content:
         return jsonify({"error": "No content provided"}), 400
 
-    content_hash = hashlib.sha256(content[:4000].encode()).hexdigest()
+    content_hash = _make_cache_key("file-analysis", filename, content)
+    content_was_truncated = len(content) > 4000
 
     mem = _result_cache_get(content_hash)
     if mem:
@@ -401,6 +434,7 @@ def explain_file():
             "tech": cached.tech,
             "concepts": cached.concepts,
             "purpose": cached.purpose,
+            "truncated": content_was_truncated,
         }
         _result_cache_set(content_hash, hit)
         return jsonify({**hit, "cached": True})
@@ -469,12 +503,16 @@ Filename: {filename}
         "tech": sanitize_ai_section(sections.get("tech", "")),
         "concepts": sanitize_ai_section(sections.get("concepts", "")),
         "purpose": sanitize_ai_section(sections.get("purpose", "")),
+        "truncated": content_was_truncated,
     }
 
     db.add(FileAnalysis(
         content_hash=content_hash,
         filename=filename,
-        **result,
+        summary=result["summary"],
+        tech=result["tech"],
+        concepts=result["concepts"],
+        purpose=result["purpose"],
     ))
     db.commit()
     _result_cache_set(content_hash, result)
