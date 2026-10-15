@@ -162,6 +162,31 @@ def sanitize_ai_section(text):
     cleaned = re.sub(r"\n{2,}", "\n\n", cleaned)
     return cleaned.strip()
 
+def parse_ai_sections(response_text, headers):
+    sections = {}
+    current_section = None
+    current_content = []
+
+    for line in response_text.splitlines():
+        normalized_line = re.sub(r'^[\s*#_`]+', '', line).strip()
+        matched_header = False
+
+        for header, key in headers:
+            if normalized_line.upper().startswith(header):
+                current_section = key
+                inline_content = normalized_line[len(header):].strip()
+                inline_content = re.sub(r'^[\s*#_`]+', '', inline_content).strip()
+                current_content = [inline_content] if inline_content else []
+                sections[current_section] = "\n".join(current_content).strip()
+                matched_header = True
+                break
+
+        if not matched_header and current_section:
+            current_content.append(line)
+            sections[current_section] = "\n".join(current_content).strip()
+
+    return {key: sanitize_ai_section(value) for key, value in sections.items()}
+
 @app.route("/review", methods=["POST"])
 @limiter.limit("10 per hour")
 @require_github_auth
@@ -268,40 +293,22 @@ Here is the code to review:
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
+    sections = parse_ai_sections(response_text, [
+        ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
+        ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
+        ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
+        ("SCORE:", "score"),
+    ])
 
-    for line in response_text.split("\n"):
-        matched = False
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("EXPLANATION:", "explanation"), ("BUGS:", "bugs"),
-            ("SUGGESTIONS:", "suggestions"), ("COMPLEXITY:", "complexity"),
-            ("SECURITY:", "security"), ("SCORE_REASONING:", "score_reasoning"),
-            ("SCORE:", "score"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
-
-    explanation = sanitize_ai_section(sections.get("explanation", ""))
-    bugs = sanitize_ai_section(sections.get("bugs", ""))
-    suggestions = sanitize_ai_section(sections.get("suggestions", ""))
-    complexity = sanitize_ai_section(sections.get("complexity", ""))
-    security = sanitize_ai_section(sections.get("security", ""))
-    score_text = sanitize_ai_section(sections.get("score", "0"))
-    score_reasoning = sanitize_ai_section(sections.get("score_reasoning", ""))
+    explanation = sections.get("explanation", "")
+    bugs = sections.get("bugs", "")
+    suggestions = sections.get("suggestions", "")
+    complexity = sections.get("complexity", "")
+    security = sections.get("security", "")
+    score_text = sections.get("score", "0")
+    score_reasoning = sections.get("score_reasoning", "")
     score_match = re.search(r'\b(\d{1,3})\b', score_text)
-    score = int(score_match.group(1)) if score_match else 0
+    score = min(100, int(score_match.group(1))) if score_match else 0
 
     submission.explanation = explanation
     submission.bugs = bugs
@@ -422,34 +429,16 @@ Here are the source files:
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
-
-    for line in response_text.split("\n"):
-        matched = False
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
-            ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
+    sections = parse_ai_sections(response_text, [
+        ("SUMMARY:", "summary"), ("ARCHITECTURE:", "architecture"),
+        ("TECH_STACK:", "tech_stack"), ("ENTRY_POINTS:", "entry_points"),
+    ])
 
     return jsonify({
-        "summary": sanitize_ai_section(sections.get("summary", "")),
-        "architecture": sanitize_ai_section(sections.get("architecture", "")),
-        "tech_stack": sanitize_ai_section(sections.get("tech_stack", "")),
-        "entry_points": sanitize_ai_section(sections.get("entry_points", "")),
+        "summary": sections.get("summary", ""),
+        "architecture": sections.get("architecture", ""),
+        "tech_stack": sections.get("tech_stack", ""),
+        "entry_points": sections.get("entry_points", ""),
     })
 
 
@@ -531,35 +520,16 @@ Filename: {filename}
     )
 
     response_text = message.content[0].text
-    sections = {}
-    current_section = None
-    current_content = []
-
-    for line in response_text.split("\n"):
-        matched = False
-        # Strip leading markdown (**, ##, __, spaces) before header matching
-        normalized = re.sub(r'^[\s*#_`]+', '', line).strip()
-        for header, key in [
-            ("SUMMARY:", "summary"), ("TECH:", "tech"),
-            ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
-        ]:
-            if normalized.upper().startswith(header):
-                current_section = key
-                inline = normalized[len(header):].strip()
-                current_content = [inline] if inline else []
-                if current_content:
-                    sections[current_section] = "\n".join(current_content).strip()
-                matched = True
-                break
-        if not matched and current_section:
-            current_content.append(line)
-            sections[current_section] = "\n".join(current_content).strip()
+    sections = parse_ai_sections(response_text, [
+        ("SUMMARY:", "summary"), ("TECH:", "tech"),
+        ("CONCEPTS:", "concepts"), ("PURPOSE:", "purpose"),
+    ])
 
     result = {
-        "summary": sanitize_ai_section(sections.get("summary", "")),
-        "tech": sanitize_ai_section(sections.get("tech", "")),
-        "concepts": sanitize_ai_section(sections.get("concepts", "")),
-        "purpose": sanitize_ai_section(sections.get("purpose", "")),
+        "summary": sections.get("summary", ""),
+        "tech": sections.get("tech", ""),
+        "concepts": sections.get("concepts", ""),
+        "purpose": sections.get("purpose", ""),
         "truncated": content_was_truncated,
     }
 

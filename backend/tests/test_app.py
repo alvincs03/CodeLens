@@ -56,6 +56,31 @@ def test_sanitize_ai_section_removes_self_talk():
     assert app.sanitize_ai_section(text) == "Useful result\n\nFinal detail"
 
 
+def test_parse_ai_sections_handles_markdown_and_inline_content():
+    response = "**SUMMARY:** Inline summary\nMore detail\n## TECH:\nPython"
+
+    sections = app.parse_ai_sections(response, [
+        ("SUMMARY:", "summary"),
+        ("TECH:", "tech"),
+    ])
+
+    assert sections == {
+        "summary": "Inline summary\nMore detail",
+        "tech": "Python",
+    }
+
+
+def test_parse_ai_sections_ignores_preamble_and_missing_sections():
+    response = "Here is the answer\nSUMMARY:\nUseful summary"
+
+    sections = app.parse_ai_sections(response, [
+        ("SUMMARY:", "summary"),
+        ("TECH:", "tech"),
+    ])
+
+    assert sections == {"summary": "Useful summary"}
+
+
 def test_anthropic_client_uses_explicit_resilience_settings(monkeypatch):
     captured_arguments = {}
 
